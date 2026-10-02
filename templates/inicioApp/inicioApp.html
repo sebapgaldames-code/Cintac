@@ -1,3 +1,66 @@
 <!DOCTYPE html>
 {% load static %}
-<html lang="es-cl">
+<html lang="es-CL">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="theme-color" content="#f47700">
+	<title>Acceso | Cintac</title>
+	<link rel="stylesheet" href="{% static 'Css/inicioApp.css' %}">
+</head>
+<body>
+	<main class="login-layout">
+		<section class="brand-panel" aria-label="Cintac">
+			<div class="brand-mark">
+				<img class="brand-logo" src="{% static 'images/LogoCintac.jpg' %}" alt="Cintac">
+			</div>
+		</section>
+
+		<section class="form-panel" aria-labelledby="form-title">
+			{% if user.is_authenticated %}
+				<div class="form-content session-content">
+					<p class="eyebrow">ACCESO CONFIRMADO</p>
+					<h2 id="form-title">Hola, {{ user.get_username }}.</h2>
+					<p class="form-description">Tu sesión está iniciada. Ya puedes continuar.</p>
+					<form method="post" action="{% url 'cerrar_sesion' %}">
+						{% csrf_token %}
+						<button class="submit-button" type="submit">Cerrar sesión</button>
+					</form>
+				</div>
+			{% else %}
+				<div class="form-content">
+					<p class="eyebrow">BIENVENIDO DE VUELTA</p>
+					<h2 id="form-title">Iniciar sesión</h2>
+					<p class="form-description">Ingresa tus datos para acceder a tu cuenta.</p>
+
+					<form method="post" action="{% url 'inicio' %}">
+						{% csrf_token %}
+						{% if form.non_field_errors %}
+							<div class="form-alert" role="alert">{{ form.non_field_errors }}</div>
+						{% endif %}
+
+						<div class="field-group">
+							<label for="{{ form.username.id_for_label }}">Nombre de usuario</label>
+							{{ form.username }}
+							{% for error in form.username.errors %}
+								<p class="field-error" role="alert">{{ error }}</p>
+							{% endfor %}
+						</div>
+
+						<div class="field-group">
+							<label for="{{ form.password.id_for_label }}">Contrasena</label>
+							{{ form.password }}
+							{% for error in form.password.errors %}
+								<p class="field-error" role="alert">{{ error }}</p>
+							{% endfor %}
+						</div>
+
+						<button class="submit-button" type="submit">Ingresar <span aria-hidden="true">&rarr;</span></button>
+					</form>
+					<p class="security-note"><span aria-hidden="true"></span> Tus credenciales se transmiten de forma segura.</p>
+				</div>
+			{% endif %}
+		</section>
+	</main>
+</body>
+</html>
