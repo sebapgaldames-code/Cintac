@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="es-CL">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="theme-color" content="#f47700">
+	<title>Administración | Cintac</title>
+	<link rel="stylesheet" href="{% static 'Css/cotizador.css' %}">
+</head>
+<body>
+	<header class="app-header">
+		<a class="brand" href="{% url 'access:admin_dashboard' %}">
+			<img src="{% static 'images/LogoCintac.jpg' %}" alt="Cintac">
+			<span>Administración</span>
+		</a>
+		<nav class="header-actions" aria-label="Navegación principal">
+			<a href="{% url 'cotizador' %}">Cotizador</a>
+			<a href="{% url 'tarifas' %}">Ver TarifasFijas</a>
+			<form method="post" action="{% url 'cerrar_sesion' %}">
+				{% csrf_token %}
+				<button class="quiet-button" type="submit">Cerrar sesión</button>
+			</form>
+		</nav>
+	</header>
+
+	<main class="page-content">
+		<section class="page-heading">
+			<div>
+				<p class="eyebrow">CONTROL DE ACCESO</p>
+				<h1>Usuarios y permisos</h1>
+			</div>
+			<p class="record-count">{{ users|length }} cuentas</p>
+		</section>
+
+		{% for message in messages %}
+			<p class="notice {{ message.tags }}" role="status">{{ message }}</p>
+		{% endfor %}
+
+		<div class="table-scroll">
+			<table class="access-table">
+				<thead>
+					<tr>
+						<th scope="col">Cuenta</th>
+						<th scope="col">Tipo de usuario</th>
+						<th scope="col">Editar tarifas</th>
+						<th scope="col"><span class="visually-hidden">Acción</span></th>
+					</tr>
+				</thead>
+				<tbody>
+					{% for account in users %}
+						<tr>
+							<td>
+								<strong>{{ account.get_username }}</strong>
+								{% if account.email %}<span class="account-email">{{ account.email }}</span>{% endif %}
+							</td>
+							<td colspan="3">
+								<form class="permission-form" method="post" action="{% url 'access:admin_dashboard' %}">
+									{% csrf_token %}
+									<input type="hidden" name="user_id" value="{{ account.pk }}">
+									<label class="check-control">
+										<input type="checkbox" name="is_admin" {% if account.access_settings.is_admin or account.is_superuser %}checked{% endif %} {% if account.is_superuser or account.pk == request.user.pk %}disabled{% endif %}>
+										<span>{% if account.is_superuser %}Administrador raíz{% elif account.access_settings.is_admin %}Administrador{% else %}Común{% endif %}</span>
+									</label>
+									<label class="check-control">
+										<input type="checkbox" name="can_edit_tariffs" {% if account.access_settings.can_edit_tariffs or account.is_superuser %}checked{% endif %} {% if account.is_superuser or account.pk == request.user.pk %}disabled{% endif %}>
+										<span>Puede editar TarifasFijas</span>
+									</label>
+									<button class="small-button" type="submit" {% if account.is_superuser or account.pk == request.user.pk %}disabled{% endif %}>Guardar</button>
+								</form>
+							</td>
+						</tr>
+					{% empty %}
+						<tr><td colspan="4" class="empty-state">Aún no hay cuentas registradas.</td></tr>
+					{% endfor %}
+				</tbody>
+			</table>
+		</div>
+	</main>
+</body>
+</html>

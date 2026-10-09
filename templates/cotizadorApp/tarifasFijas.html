@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="es-CL">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="theme-color" content="#74102f">
+	<title>TarifasFijas | Cintac</title>
+	<link rel="stylesheet" href="{% static 'Css/cotizador.css' %}">
+</head>
+<body class="table-page">
+	<header class="app-header">
+		<a class="brand" href="{% url 'cotizador' %}"><img src="{% static 'images/LogoCintac.jpg' %}" alt="Cintac"><span>TarifasFijas</span></a>
+		<nav class="header-actions" aria-label="Navegación principal">
+			<a href="{% url 'cotizador' %}">Cotizador</a>
+			<a href="{% url 'access:admin_dashboard' %}">Administración</a>
+			<form method="post" action="{% url 'cerrar_sesion' %}">{% csrf_token %}<button class="quiet-button" type="submit">Cerrar sesión</button></form>
+		</nav>
+	</header>
+	<main class="page-content">
+		<section class="page-heading"><div><p class="eyebrow">ARCHIVO MAESTRO</p><h1>Tarifas fijas</h1></div><p class="record-count">{{ rows|length }} rutas</p></section>
+		{% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+		{% if headers %}
+			{% if can_edit %}<form method="post" action="{% url 'tarifas' %}">{% csrf_token %}{% endif %}
+				<div class="table-scroll"><table class="tariff-table"><thead><tr>{% for heading in headers %}<th scope="col">{{ heading }}</th>{% endfor %}</tr></thead>
+					<tbody>{% for row in rows %}<tr>{% for value in row.values %}<td>{% if can_edit %}<input class="cell-input" aria-label="Dato fila {{ row.number }} columna {{ forloop.counter }}" name="cell_{{ row.number }}_{{ forloop.counter }}" value="{{ value|default_if_none:'' }}" {% if forloop.counter >= 5 and forloop.counter <= 10 %}type="number" min="0" {% if forloop.counter >= 9 %}step="1"{% else %}step="any"{% endif %} required{% else %}maxlength="200" required{% endif %}>{% else %}{{ value|default_if_none:'' }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody>
+				</table></div>
+				{% if can_edit %}<div class="table-actions"><span>Los cambios se guardan en TarifasFijas.xlsx.</span><button class="primary-button" type="submit">Guardar cambios</button></div></form>{% endif %}
+		{% endif %}
+	</main>
+</body>
+</html>

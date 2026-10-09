@@ -304,6 +304,18 @@ body {
 	 background: var(--accent);
 }
 
+.text-link {
+	color: var(--accent-hover);
+	font-weight: 700;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 3px;
+}
+
+.text-link:focus-visible {
+	outline: 2px solid var(--accent-hover);
+	outline-offset: 3px;
+}
+
 .form-alert,
 .field-error {
 	color: var(--error);

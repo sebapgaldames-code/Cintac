@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="es-CL">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="theme-color" content="#74102f">
+	<title>Cotiza tu envío | Cintac</title>
+	<link rel="stylesheet" href="{% static 'Css/cotizador.css' %}">
+</head>
+<body class="quote-page">
+	<header class="quote-header">
+		<a class="quote-brand" href="{% url 'cotizador' %}">
+			<img src="{% static 'images/LogoCintac.jpg' %}" alt="Cintac">
+			<span>Cotizador</span>
+		</a>
+		<nav class="header-actions" aria-label="Navegación principal">
+			{% if can_view_tariffs %}<a href="{% url 'tarifas' %}">TarifasFijas</a>{% endif %}
+			{% if is_admin %}<a href="{% url 'access:admin_dashboard' %}">Administración</a>{% endif %}
+			<form method="post" action="{% url 'cerrar_sesion' %}">
+				{% csrf_token %}
+				<button class="quiet-button" type="submit">Cerrar sesión</button>
+			</form>
+		</nav>
+	</header>
+
+	<section class="quote-hero">
+		<p class="eyebrow">CINTAC LOGÍSTICA</p>
+		<h1>Cotiza tu envío</h1>
+		<p>Estimación de transporte en pocos pasos</p>
+	</section>
+
+	<main class="quote-main">
+		<nav class="stepper" aria-label="Progreso de cotización">
+			<div class="stepper-track"><span style="width: {{ progress }}%"></span></div>
+			<div class="step-node {% if step >= 1 %}is-active{% endif %}"><span>{% if step > 1 %}✓{% else %}1{% endif %}</span><small>Transporte</small></div>
+			<div class="step-node {% if step >= 2 %}is-active{% endif %}"><span>{% if step > 2 %}✓{% else %}2{% endif %}</span><small>Ruta</small></div>
+			<div class="step-node {% if step >= 3 %}is-active{% endif %}"><span>{% if step > 3 %}✓{% else %}3{% endif %}</span><small>Carga</small></div>
+			<div class="step-node {% if step >= 4 %}is-active{% endif %}"><span>4</span><small>Contacto</small></div>
+		</nav>
+
+		{% if estimate %}
+			<aside class="estimate-banner" aria-live="polite">
+				<span class="estimate-icon" aria-hidden="true">$</span>
+				<div><small>Estimación referencial</small><strong>US${{ estimate.minimum }} - ${{ estimate.maximum }} USD</strong></div>
+			</aside>
+		{% endif %}
+
+		{% if errors %}
+			<div class="quote-errors" role="alert">{% for error in errors %}<p>{{ error }}</p>{% endfor %}</div>
+		{% endif %}
+
+		{% if quote.completed %}
+			<section class="quote-complete" aria-labelledby="complete-title">
+				<p class="eyebrow">ESTIMACIÓN PREPARADA</p>
+				<h2 id="complete-title">Gracias, {{ quote.name }}.</h2>
+				<p>Tu estimación quedó lista para el envío entre {{ quote.origin }} y {{ quote.destination }}.</p>
+				<p class="complete-contact">Resumen mostrado para {{ quote.email }} · {{ quote.phone }}</p>
+				<form method="post" action="{% url 'cotizador' %}">
+					{% csrf_token %}
+					<button class="quote-primary" type="submit" name="action" value="restart">Crear otra cotización</button>
+				</form>
+			</section>
+		{% elif step == 1 %}
+			<section class="quote-section" aria-labelledby="step-title">
+				<p class="step-kicker">PASO 1 DE 4</p>
+				<h2 id="step-title">Tipo de transporte</h2>
+				<p class="section-description">¿Cómo quieres enviar tu carga?</p>
+				<form method="post" action="{% url 'cotizador' %}">
+					{% csrf_token %}
+					<div class="transport-grid">
+						{% for transport in transports %}
+							<label class="transport-card">
+								<input type="radio" name="transport" value="{{ transport.id }}" {% if quote.transport == transport.id %}checked{% endif %} required>
+								<span class="transport-icon" aria-hidden="true">{{ transport.icon }}</span>
+								<strong>{{ transport.label }}</strong>
+								<small>{{ transport.starting_price }}</small>
+							</label>
+						{% endfor %}
+					</div>
+					<div class="quote-actions quote-actions-end"><button class="quote-primary" type="submit">Continuar <span aria-hidden="true">→</span></button></div>
+				</form>
+			</section>
+		{% elif step == 2 %}
+			<section class="quote-section" aria-labelledby="step-title">
+				<p class="step-kicker">PASO 2 DE 4</p>
+				<h2 id="step-title">Elige tu ruta</h2>
+				<p class="section-description">Selecciona origen y destino para consultar disponibilidad.</p>
+				<form method="post" action="{% url 'cotizador' %}">
+					{% csrf_token %}
+					<div class="route-fields">
+						<label class="route-field"><span>Origen</span><select name="origin" required><option value="">Selecciona origen...</option>{% for origin in origins %}<option value="{{ origin }}" {% if quote.origin == origin %}selected{% endif %}>{{ origin }}</option>{% endfor %}</select></label>
+						<span class="route-connector" aria-hidden="true"></span>
+						<label class="route-field"><span>Destino</span><select name="destination" required><option value="">Selecciona destino...</option>{% for destination in destinations %}<option value="{{ destination }}" {% if quote.destination == destination %}selected{% endif %}>{{ destination }}</option>{% endfor %}</select></label>
+					</div>
+					<p class="route-hint">Las rutas y tarifas disponibles se actualizan desde el archivo maestro.</p>
+					<div class="quote-actions"><button class="quote-secondary" type="submit" name="action" value="back" formnovalidate>← Volver</button><button class="quote-primary" type="submit">Continuar <span aria-hidden="true">→</span></button></div>
+				</form>
+			</section>
+		{% elif step == 3 %}
+			<section class="quote-section" aria-labelledby="step-title">
+				<p class="step-kicker">PASO 3 DE 4</p>
+				<h2 id="step-title">Cuéntanos sobre tu carga</h2>
+				<form method="post" action="{% url 'cotizador' %}">
+					{% csrf_token %}
+					<fieldset class="cargo-fieldset">
+						<legend>Tipo de carga</legend>
+						<div class="cargo-grid">
+							{% for value, label, icon in cargo_types %}
+								<label class="cargo-option"><input type="radio" name="cargo_type" value="{{ value }}" {% if quote.cargo_type == value or not quote.cargo_type and value == 'general' %}checked{% endif %} required><span class="cargo-icon" aria-hidden="true">{{ icon }}</span><span>{{ label }}</span></label>
+							{% endfor %}
+						</div>
+					</fieldset>
+					<div class="weight-field">
+						<label for="weight-range">Peso total (kg)</label>
+						<div class="weight-controls"><input id="weight-range" type="range" min="1" max="5000" value="{{ quote.weight|default:'100' }}"><input id="weight-number" name="weight" type="number" min="1" max="5000" value="{{ quote.weight|default:'100' }}" required><span>kg</span></div>
+					</div>
+					{% if quote.transport == 'maritimo' %}
+						<label class="route-field container-field"><span>Tamaño de contenedor</span><select name="container_size"><option value="20" {% if quote.container_size != '40' %}selected{% endif %}>20 pies</option><option value="40" {% if quote.container_size == '40' %}selected{% endif %}>40 pies</option></select></label>
+					{% else %}<input type="hidden" name="container_size" value="20">{% endif %}
+					<label class="description-field" for="description">Descripción <span>Opcional</span><textarea id="description" name="description" maxlength="500" placeholder="Describe tu mercancía...">{{ quote.description }}</textarea></label>
+					<div class="quote-actions"><button class="quote-secondary" type="submit" name="action" value="back" formnovalidate>← Volver</button><button class="quote-primary" type="submit">Continuar <span aria-hidden="true">→</span></button></div>
+				</form>
+			</section>
+		{% else %}
+			<section class="quote-section contact-section" aria-labelledby="step-title">
+				<p class="step-kicker">PASO 4 DE 4</p>
+				<h2 id="step-title">Datos de contacto</h2>
+				<p class="section-description">La estimación se calcula en USD y puede variar según disponibilidad.</p>
+				<form method="post" action="{% url 'cotizador' %}">
+					{% csrf_token %}
+					<div class="contact-fields">
+						<label class="route-field"><span>Nombre</span><input name="name" maxlength="120" value="{{ quote.name }}" autocomplete="name" required></label>
+						<label class="route-field"><span>Correo electrónico</span><input name="email" type="email" value="{{ quote.email }}" autocomplete="email" required></label>
+						<label class="route-field"><span>Teléfono</span><input name="phone" type="tel" value="{{ quote.phone }}" autocomplete="tel" placeholder="+56 9 1234 5678" required></label>
+					</div>
+					<div class="quote-actions"><button class="quote-secondary" type="submit" name="action" value="back" formnovalidate>← Volver</button><button class="quote-primary" type="submit">Ver resumen <span aria-hidden="true">→</span></button></div>
+				</form>
+			</section>
+		{% endif %}
+	</main>
+	<script>
+		const weightRange = document.querySelector("#weight-range");
+		const weightNumber = document.querySelector("#weight-number");
+		if (weightRange && weightNumber) {
+			weightRange.addEventListener("input", () => { weightNumber.value = weightRange.value; });
+			weightNumber.addEventListener("input", () => { weightRange.value = weightNumber.value; });
+		}
+	</script>
+</body>
+</html>

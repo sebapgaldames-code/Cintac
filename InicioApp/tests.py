@@ -62,6 +62,47 @@ class LoginTests(TestCase):
 			{"username": "Operador", "password": "ClaveSegura2026!"},
 		)
 
-		self.assertRedirects(response, reverse("inicio"))
+		self.assertRedirects(response, reverse("cotizador"))
 		self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
-		self.assertContains(self.client.get(reverse("inicio")), "Operador")
+		self.assertRedirects(self.client.get(reverse("inicio")), reverse("cotizador"))
+
+
+class RegistrationTests(TestCase):
+	def test_registration_page_displays_account_fields(self):
+		response = self.client.get(reverse("registro"))
+
+		self.assertEqual(response.status_code, 200)
+		self.assertContains(response, "Crear cuenta")
+		self.assertContains(response, 'name="username"')
+		self.assertContains(response, 'name="email"')
+
+	def test_registration_saves_user_and_allows_login(self):
+		response = self.client.post(
+			reverse("registro"),
+			{
+				"username": "NuevaCuenta",
+				"email": "nueva@example.com",
+				"password1": "ClaveSegura2026!",
+				"password2": "ClaveSegura2026!",
+			},
+		)
+
+		user = get_user_model().objects.get(username="NuevaCuenta")
+		self.assertRedirects(response, reverse("inicio"))
+		self.assertEqual(user.email, "nueva@example.com")
+		self.assertTrue(user.check_password("ClaveSegura2026!"))
+		self.assertNotIn("_auth_user_id", self.client.session)
+
+		login_response = self.client.post(
+			reverse("inicio"),
+			{"username": "NuevaCuenta", "password": "ClaveSegura2026!"},
+		)
+		self.assertRedirects(login_response, reverse("cotizador"))
+		self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
+
+	def test_empty_registration_shows_required_fields(self):
+		response = self.client.post(reverse("registro"), {})
+
+		self.assertEqual(response.status_code, 200)
+		self.assertIn("username", response.context["form"].errors)
+		self.assertIn("password1", response.context["form"].errors)
