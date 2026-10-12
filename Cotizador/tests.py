@@ -100,30 +100,166 @@ class TariffEditorTests(TestCase):
 
 		response = self.client.get(reverse("cotizador"))
 
-		self.assertEqual(response.context["estimate"], {"minimum": 1000, "maximum": 1200})
+		self.assertEqual(response.context["estimate"], {"minimum": 1001, "maximum": 1001})
 
-	def test_quote_can_complete_all_four_steps(self):
+	def test_maritime_tariff_interpolates_weight_and_counts_containers(self):
 		self.client.force_login(self.common)
-		self.client.post(reverse("cotizador"), {"transport": "aereo"})
-		self.client.post(
+		session = self.client.session
+		session["quote_step"] = 3
+		session["quote_data"] = {
+			"transport": "maritimo",
+			"origin": "Shanghai",
+			"destination": "San Antonio",
+			"cargo_type": "general",
+			"weight": 12500,
+			"weight_unit": "kg",
+			"container_size": "20",
+		}
+		session.save()
+
+		response = self.client.get(reverse("cotizador"))
+
+		self.assertEqual(response.context["estimate"], {"minimum": 1100, "maximum": 1100})
+		self.assertEqual(response.context["container_count"], 1)
+		self.assertContains(response, "data-price-min=\"1000\"")
+
+		session = self.client.session
+		session["quote_data"]["weight"] = 30000
+		session.save()
+		response = self.client.get(reverse("cotizador"))
+
+		self.assertEqual(response.context["estimate"], {"minimum": 2240, "maximum": 2240})
+		self.assertEqual(response.context["container_count"], 2)
+		self.assertContains(response, 'id="container-count">2</span>')
+		self.assertContains(response, "máximo 25 toneladas por contenedor")
+
+	def test_maritime_currency_conversion_uses_weighted_tariff(self):
+		self.client.force_login(self.common)
+		session = self.client.session
+		session["quote_step"] = 3
+		session["quote_data"] = {
+			"transport": "maritimo",
+			"origin": "Shanghai",
+			"destination": "San Antonio",
+			"weight": 12500,
+			"container_size": "20",
+		}
+		session.save()
+		self.client.post(reverse("cotizador"), {"action": "currency", "currency": "CLP"})
+
+		response = self.client.get(reverse("cotizador"))
+
+		self.assertEqual(response.context["estimate"], {"minimum": "1.045.000", "maximum": "1.045.000"})
+		self.assertContains(response, "$1.045.000 CLP")
+
+	def test_quote_summary_formats_tons_and_shows_required_container_count(self):
+		self.client.force_login(self.common)
+		session = self.client.session
+		session["quote_step"] = 4
+		session["quote_data"] = {
+			"transport": "maritimo",
+			"origin": "Shanghai",
+			"destination": "San Antonio",
+			"cargo_type": "general",
+			"weight": 25500,
+			"weight_unit": "ton",
+			"container_size": "20",
+		}
+		session.save()
+
+		response = self.client.get(reverse("cotizador"))
+
+		self.assertContains(response, "25,5 toneladas")
+		self.assertEqual(response.context["container_count"], 2)
+		self.assertContains(response, "Contenedores")
+		self.assertContains(response, 'dd>2</dd>')
+
+	def test_terrestrial_summary_shows_container_equation(self):
+		self.client.force_login(self.common)
+		session = self.client.session
+		session["quote_step"] = 4
+		session["quote_data"] = {
+			"transport": "terrestre",
+			"origin": "Qingdao",
+			"destination": "Valparaiso",
+			"cargo_type": "general",
+			"weight": 116400,
+			"weight_unit": "ton",
+	}
+		session.save()
+
+		response = self.client.get(reverse("cotizador"))
+
+		self.assertEqual(response.context["container_count"], 5)
+		self.assertContains(response, "Contenedores")
+		self.assertContains(response, 'dd>5</dd>')
+
+	def test_currency_toggle_converts_displayed_estimate_to_clp(self):
+		self.client.force_login(self.common)
+		session = self.client.session
+		session["quote_step"] = 3
+		session["quote_data"] = {
+			"transport": "aereo",
+			"origin": "Shanghai",
+			"destination": "San Antonio",
+			"weight": 100,
+		}
+		session.save()
+
+		response = self.client.post(reverse("cotizador"), {"action": "currency", "currency": "CLP"})
+
+		self.assertRedirects(response, reverse("cotizador"))
+		response = self.client.get(reverse("cotizador"))
+		self.assertContains(response, 'id="estimate-minimum">$283.100</span>')
+		self.assertContains(response, 'id="estimate-maximum">$381.900</span>')
+		self.assertContains(response, "CLP")
+		self.assertContains(response, "1 USD = $950 CLP")
+
+	def test_tonne_input_is_stored_as_kilograms_for_estimation(self):
+		self.client.force_login(self.common)
+		session = self.client.session
+		session["quote_step"] = 3
+		session["quote_data"] = {
+			"transport": "aereo",
+			"origin": "Shanghai",
+			"destination": "San Antonio",
+		}
+		session.save()
+
+		response = self.client.post(
 			reverse("cotizador"),
-			{"origin": "Shanghai", "destination": "San Antonio"},
+			{"cargo_type": "general", "weight": "0.5", "weight_unit": "ton", "container_size": "20"},
 		)
-		self.client.post(
-			reverse("cotizador"),
-			{"cargo_type": "general", "weight": "100", "container_size": "20", "description": "Muestras"},
-		)
-		self.client.post(
-			reverse("cotizador"),
-			{"name": "Cliente Prueba", "email": "cliente@example.com", "phone": "+56 9 1234 5678"},
-		)
+
+		self.assertRedirects(response, reverse("cotizador"))
+		self.assertEqual(self.client.session["quote_data"]["weight"], 500)
+		self.assertEqual(self.client.session["quote_data"]["weight_unit"], "ton")
+		self.assertContains(self.client.get(reverse("cotizador")), "0,5 toneladas")
+
+	def test_quote_summary_can_be_confirmed_without_contact_data(self):
+		self.client.force_login(self.common)
+		session = self.client.session
+		session["quote_step"] = 4
+		session["quote_data"] = {
+			"transport": "aereo",
+			"origin": "Shanghai",
+			"destination": "San Antonio",
+			"cargo_type": "general",
+			"weight": 100,
+			"description": "Muestras",
+		}
+		session.save()
+		self.client.post(reverse("cotizador"), {"action": "complete"})
 
 		response = self.client.get(reverse("cotizador"))
 
 		self.assertContains(response, "ESTIMACIÓN PREPARADA")
-		self.assertContains(response, "Cliente Prueba")
+		self.assertContains(response, "Shanghai")
+		self.assertContains(response, "San Antonio")
+		self.assertContains(response, "Muestras")
+		self.assertNotContains(response, "Datos de contacto")
 
-	def test_contact_step_back_button_skips_required_contact_fields(self):
+	def test_summary_step_has_a_back_button(self):
 		self.client.force_login(self.common)
 		session = self.client.session
 		session["quote_step"] = 4
@@ -133,6 +269,35 @@ class TariffEditorTests(TestCase):
 		response = self.client.get(reverse("cotizador"))
 
 		self.assertContains(response, 'name="action" value="back" formnovalidate')
+
+	def test_general_cargo_is_a_static_image_and_selected_automatically(self):
+		self.client.force_login(self.common)
+		session = self.client.session
+		session["quote_step"] = 3
+		session["quote_data"] = {"transport": "aereo"}
+		session.save()
+
+		response = self.client.get(reverse("cotizador"))
+
+		self.assertContains(response, 'src="/static/images/carga-general.png"')
+		self.assertContains(response, "Carga general")
+		self.assertNotContains(response, 'name="cargo_type"')
+		response = self.client.post(
+			reverse("cotizador"),
+			{"weight": "100", "weight_unit": "kg", "container_size": "20"},
+		)
+		self.assertRedirects(response, reverse("cotizador"))
+		self.assertEqual(self.client.session["quote_data"]["cargo_type"], "general")
+
+		session = self.client.session
+		session["quote_step"] = 3
+		session["quote_data"] = {"transport": "aereo"}
+		session.save()
+		response = self.client.post(
+			reverse("cotizador"),
+			{"cargo_type": "perecedera", "weight": "100", "container_size": "20"},
+		)
+		self.assertContains(response, "Selecciona el tipo de carga.")
 
 	def test_authorized_editor_saves_tariff_changes(self):
 		self.client.force_login(self.editor)

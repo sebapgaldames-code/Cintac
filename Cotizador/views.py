@@ -1,13 +1,11 @@
 import os
-import re
 import tempfile
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied, ValidationError
-from django.core.validators import validate_email
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 from openpyxl import load_workbook
@@ -19,14 +17,11 @@ TRANSPORTS = (
 	{"id": "maritimo", "label": "Marítimo", "icon": "▰", "starting_price": "Por ruta y contenedor"},
 	{"id": "terrestre", "label": "Terrestre", "icon": "▰", "starting_price": "Desde US$100"},
 )
-CARGO_TYPES = (
-	("general", "General", "📦"),
-	("perecedera", "Perecedera", "🥬"),
-	("fragil", "Frágil", "⚠"),
-	("peligrosa", "Peligrosa", "☢"),
-	("alto_valor", "Alto valor", "◆"),
-	("otro", "Otro", "▤"),
-)
+CARGO_TYPES = (("general", "General", "📦"),)
+WEIGHT_UNITS = {"kg", "ton"}
+CURRENCIES = {"USD", "CLP"}
+CONTAINER_CAPACITY_KG = 25_000
+MAX_QUOTE_WEIGHT_KG = 250_000
 
 
 def _workbook_path():
@@ -69,8 +64,15 @@ def _available_routes():
 
 def _estimate_quote(transport, route, weight, container_size):
 	if transport == "maritimo":
-		minimum = route[f"{container_size}_min"]
-		maximum = route[f"{container_size}_max"]
+		container_count = (int(weight) + CONTAINER_CAPACITY_KG - 1) // CONTAINER_CAPACITY_KG
+		minimum_tariff = Decimal(str(route[f"{container_size}_min"]))
+		maximum_tariff = Decimal(str(route[f"{container_size}_max"]))
+		load_ratio = Decimal(str(weight)) / Decimal(CONTAINER_CAPACITY_KG)
+		price = (
+			container_count * minimum_tariff
+			+ load_ratio * (maximum_tariff - minimum_tariff)
+		).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+		return int(price), int(price)
 	else:
 		weight = Decimal(str(weight))
 		if transport == "aereo":
@@ -148,6 +150,11 @@ def cotizador(request):
 			request.session.pop("quote_data", None)
 			request.session["quote_step"] = 1
 			return redirect("cotizador")
+		if action == "currency":
+			currency = request.POST.get("currency")
+			if currency in CURRENCIES:
+				request.session["quote_currency"] = currency
+			return redirect("cotizador")
 		if action == "back":
 			request.session["quote_step"] = max(1, step - 1)
 			return redirect("cotizador")
@@ -173,47 +180,41 @@ def cotizador(request):
 			else:
 				quote.update({"origin": origin, "destination": destination, "country": route["country"]})
 		elif step == 3:
-			cargo_type = request.POST.get("cargo_type")
+			cargo_type = request.POST.get("cargo_type", "general")
 			weight = request.POST.get("weight", "")
+			weight_unit = request.POST.get("weight_unit", "kg")
 			container_size = request.POST.get("container_size", "20")
 			try:
-				weight_value = int(weight)
-			except (TypeError, ValueError):
+				weight_value = Decimal(weight)
+				if weight_unit == "ton":
+					weight_value *= Decimal("1000")
+				if not weight_value.is_finite() or weight_value != weight_value.to_integral_value():
+					weight_value = Decimal("0")
+				weight_value = int(weight_value)
+			except (InvalidOperation, TypeError, ValueError):
 				weight_value = 0
 			description = request.POST.get("description", "").strip()
-			quote.update(
-				{
-					"cargo_type": cargo_type,
-					"weight": weight,
-					"container_size": container_size,
-					"description": description,
-				}
-			)
+			quote.update({"cargo_type": cargo_type, "container_size": container_size, "description": description})
 			if cargo_type not in {item[0] for item in CARGO_TYPES}:
 				errors.append("Selecciona el tipo de carga.")
-			if not 1 <= weight_value <= 5000:
-				errors.append("El peso debe estar entre 1 y 5.000 kg.")
+			if weight_unit not in WEIGHT_UNITS:
+				errors.append("Selecciona una unidad de peso válida.")
+			if not 1 <= weight_value <= MAX_QUOTE_WEIGHT_KG:
+				errors.append("El peso debe equivaler a un valor entre 1 kg y 250 toneladas.")
 			if container_size not in {"20", "40"}:
 				errors.append("Selecciona un contenedor válido.")
 			if len(description) > 500:
 				errors.append("La descripción no puede superar los 500 caracteres.")
 			if not errors:
 				quote["weight"] = weight_value
+				quote["weight_unit"] = weight_unit
 		elif step == 4:
-			name = request.POST.get("name", "").strip()
-			email = request.POST.get("email", "").strip()
-			phone = request.POST.get("phone", "").strip()
-			quote.update({"name": name, "email": email, "phone": phone})
-			if not name or len(name) > 120:
-				errors.append("Ingresa tu nombre (máximo 120 caracteres).")
-			try:
-				validate_email(email)
-			except ValidationError:
-				errors.append("Ingresa un correo electrónico válido.")
-			if not 8 <= len(re.sub(r"\D", "", phone)) <= 15:
-				errors.append("Ingresa un teléfono válido con código de país.")
-			if not errors:
-				quote.update({"name": name, "email": email, "phone": phone, "completed": True})
+			if action != "complete":
+				errors.append("Confirma el resumen para completar la cotización.")
+			elif not all(quote.get(field) for field in ("transport", "origin", "destination", "cargo_type", "weight")):
+				errors.append("Completa los pasos anteriores antes de confirmar la cotización.")
+			else:
+				quote["completed"] = True
 		else:
 			request.session["quote_step"] = 1
 			return redirect("cotizador")
@@ -225,10 +226,54 @@ def cotizador(request):
 
 	step = request.session.get("quote_step", 1)
 	quote = request.session.get("quote_data", quote)
+	currency = request.session.get("quote_currency", "USD")
+	if currency not in CURRENCIES:
+		currency = "USD"
+	weight_unit = quote.get("weight_unit", "kg")
+	if weight_unit not in WEIGHT_UNITS:
+		weight_unit = "kg"
+	weight_display = Decimal(str(quote.get("weight", 100)))
+	if weight_unit == "ton":
+		weight_display /= Decimal("1000")
+	weight_display = format(weight_display.normalize(), "f")
 	selected_route = next(
 		(item for item in routes if item["origin"] == quote.get("origin") and item["destination"] == quote.get("destination")),
 		None,
 	)
+	container_count = 0
+	maritime_tariff = None
+	if quote.get("weight"):
+		container_count = (int(quote["weight"]) + CONTAINER_CAPACITY_KG - 1) // CONTAINER_CAPACITY_KG
+	if quote.get("transport") == "maritimo" and selected_route:
+		container_size = quote.get("container_size", "20")
+		maritime_tariff = {
+			"minimum": str(selected_route[f"{container_size}_min"]),
+			"maximum": str(selected_route[f"{container_size}_max"]),
+		}
+	summary_fields = []
+	if quote:
+		transport_label = next((item["label"] for item in TRANSPORTS if item["id"] == quote.get("transport")), "")
+		cargo_label = next((item[1] for item in CARGO_TYPES if item[0] == quote.get("cargo_type")), "")
+		if transport_label:
+			summary_fields.append({"label": "Transporte", "value": transport_label})
+		for label, field in (("Origen", "origin"), ("Destino", "destination")):
+			if quote.get(field):
+				summary_fields.append({"label": label, "value": quote[field]})
+		if cargo_label:
+			summary_fields.append({"label": "Tipo de carga", "value": cargo_label})
+		if quote.get("weight"):
+			if weight_unit == "ton":
+				weight_summary = f'{(Decimal(quote["weight"]) / Decimal("1000")).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP):.1f}'.replace(".", ",")
+				weight_summary = f"{weight_summary} toneladas"
+			else:
+				weight_summary = f'{quote["weight"]} kg'
+			summary_fields.append({"label": "Peso", "value": weight_summary})
+		if quote.get("transport") == "maritimo" and quote.get("container_size"):
+			summary_fields.append({"label": "Contenedor", "value": f'{quote["container_size"]} pies'})
+		if container_count:
+			summary_fields.append({"label": "Contenedores", "value": container_count})
+		if quote.get("description"):
+			summary_fields.append({"label": "Descripción", "value": quote["description"]})
 	estimate = None
 	if selected_route and quote.get("transport"):
 		minimum, maximum = _estimate_quote(
@@ -238,11 +283,32 @@ def cotizador(request):
 			quote.get("container_size", "20"),
 		)
 		estimate = {"minimum": minimum, "maximum": maximum}
+		usd_to_clp_rate = Decimal(str(getattr(settings, "USD_TO_CLP_RATE", "950")))
+		if currency == "CLP":
+			minimum_clp = int((Decimal(minimum) * usd_to_clp_rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+			maximum_clp = int((Decimal(maximum) * usd_to_clp_rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+			estimate.update(
+				{
+					"minimum": f'{minimum_clp:,}'.replace(",", "."),
+					"maximum": f'{maximum_clp:,}'.replace(",", "."),
+				}
+			)
 
 	context = {
 		"step": step,
 		"progress": round((step - 1) * 100 / 3),
 		"quote": quote,
+		"summary_fields": summary_fields,
+		"currency": currency,
+		"usd_to_clp_rate": format(Decimal(str(getattr(settings, "USD_TO_CLP_RATE", "950"))), ",.0f").replace(",", "."),
+		"weight_unit": weight_unit,
+		"weight_display": weight_display,
+		"max_weight_kg": MAX_QUOTE_WEIGHT_KG,
+		"max_weight_ton": format(Decimal(MAX_QUOTE_WEIGHT_KG) / Decimal("1000"), "f"),
+		"container_count": container_count,
+		"container_capacity_kg": CONTAINER_CAPACITY_KG,
+		"maritime_tariff": maritime_tariff,
+		"estimate_is_range": quote.get("transport") != "maritimo",
 		"estimate": estimate,
 		"errors": errors,
 		"routes": routes,

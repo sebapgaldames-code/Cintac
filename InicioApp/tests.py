@@ -1,9 +1,13 @@
 from django.test import TestCase
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.urls import reverse
 
 
 class LoginTests(TestCase):
+	def setUp(self):
+		cache.clear()
+
 	def test_login_page_displays_cintac_logo(self):
 		response = self.client.get(reverse("inicio"))
 
@@ -50,6 +54,45 @@ class LoginTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertTrue(response.context["form"].non_field_errors())
 		self.assertNotIn("_auth_user_id", self.client.session)
+
+	def test_blocks_login_after_five_failed_attempts(self):
+		user = get_user_model().objects.create_user(
+			username="Operador",
+			password="ClaveSegura2026!",
+		)
+		for _ in range(5):
+			response = self.client.post(
+				reverse("inicio"),
+				{"username": "Operador", "password": "Incorrecta1!"},
+			)
+
+		self.assertContains(response, "bloqueado por 1 minuto")
+		response = self.client.post(
+			reverse("inicio"),
+			{"username": "Operador", "password": "ClaveSegura2026!"},
+		)
+		self.assertContains(response, "bloqueado por 1 minuto")
+		self.assertNotIn("_auth_user_id", self.client.session)
+		self.assertTrue(user.check_password("ClaveSegura2026!"))
+
+	def test_successful_login_resets_failed_attempts(self):
+		user = get_user_model().objects.create_user(
+			username="Operador",
+			password="ClaveSegura2026!",
+		)
+		for _ in range(4):
+			self.client.post(
+				reverse("inicio"),
+				{"username": "Operador", "password": "Incorrecta1!"},
+			)
+
+		response = self.client.post(
+			reverse("inicio"),
+			{"username": "Operador", "password": "ClaveSegura2026!"},
+		)
+
+		self.assertRedirects(response, reverse("cotizador"))
+		self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
 
 	def test_logs_in_with_valid_credentials(self):
 		user = get_user_model().objects.create_user(

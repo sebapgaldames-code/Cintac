@@ -36,13 +36,29 @@
 			<div class="step-node {% if step >= 1 %}is-active{% endif %}"><span>{% if step > 1 %}✓{% else %}1{% endif %}</span><small>Transporte</small></div>
 			<div class="step-node {% if step >= 2 %}is-active{% endif %}"><span>{% if step > 2 %}✓{% else %}2{% endif %}</span><small>Ruta</small></div>
 			<div class="step-node {% if step >= 3 %}is-active{% endif %}"><span>{% if step > 3 %}✓{% else %}3{% endif %}</span><small>Carga</small></div>
-			<div class="step-node {% if step >= 4 %}is-active{% endif %}"><span>4</span><small>Contacto</small></div>
+			<div class="step-node {% if step >= 4 %}is-active{% endif %}"><span>4</span><small>Resumen</small></div>
 		</nav>
 
 		{% if estimate %}
 			<aside class="estimate-banner" aria-live="polite">
 				<span class="estimate-icon" aria-hidden="true">$</span>
-				<div><small>Estimación referencial</small><strong>US${{ estimate.minimum }} - ${{ estimate.maximum }} USD</strong></div>
+				<div class="estimate-copy" data-transport="{{ quote.transport }}" data-currency="{{ currency }}" data-exchange-rate="{{ usd_to_clp_rate }}" {% if maritime_tariff %}data-price-min="{{ maritime_tariff.minimum }}" data-price-max="{{ maritime_tariff.maximum }}" data-container-capacity="{{ container_capacity_kg }}"{% endif %}>
+					<small>Estimación referencial</small>
+					<strong>
+						{% if estimate_is_range %}
+							<span id="estimate-minimum">{% if currency == 'CLP' %}${{ estimate.minimum }}{% else %}US${{ estimate.minimum }}{% endif %}</span> - <span id="estimate-maximum">{% if currency == 'CLP' %}${{ estimate.maximum }}{% else %}US${{ estimate.maximum }}{% endif %}</span> {{ currency }}
+						{% else %}
+							<span id="estimated-price">{% if currency == 'CLP' %}${{ estimate.minimum }}{% else %}US${{ estimate.minimum }}{% endif %} {{ currency }}</span>
+						{% endif %}
+					</strong>
+					{% if quote.transport == 'maritimo' and container_count %}<small class="container-note"><span id="container-count">{{ container_count }}</span><span id="container-label"> contenedor{% if container_count != 1 %}es{% endif %} · máximo 25 toneladas por contenedor</span></small>{% endif %}
+					{% if currency == 'CLP' %}<small class="exchange-note">Cambio referencial: 1 USD = ${{ usd_to_clp_rate }} CLP</small>{% endif %}
+				</div>
+				<form class="currency-switch" method="post" action="{% url 'cotizador' %}" aria-label="Moneda de la estimación">
+					{% csrf_token %}<input type="hidden" name="action" value="currency">
+					<button type="submit" name="currency" value="USD" aria-pressed="{% if currency == 'USD' %}true{% else %}false{% endif %}">USD</button>
+					<button type="submit" name="currency" value="CLP" aria-pressed="{% if currency == 'CLP' %}true{% else %}false{% endif %}">CLP</button>
+				</form>
 			</aside>
 		{% endif %}
 
@@ -53,9 +69,11 @@
 		{% if quote.completed %}
 			<section class="quote-complete" aria-labelledby="complete-title">
 				<p class="eyebrow">ESTIMACIÓN PREPARADA</p>
-				<h2 id="complete-title">Gracias, {{ quote.name }}.</h2>
-				<p>Tu estimación quedó lista para el envío entre {{ quote.origin }} y {{ quote.destination }}.</p>
-				<p class="complete-contact">Resumen mostrado para {{ quote.email }} · {{ quote.phone }}</p>
+				<h2 id="complete-title">Cotización lista</h2>
+				<p>Tu estimación quedó preparada con los datos ingresados:</p>
+				<dl class="quote-summary">
+					{% for field in summary_fields %}<div class="summary-row"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>{% endfor %}
+				</dl>
 				<form method="post" action="{% url 'cotizador' %}">
 					{% csrf_token %}
 					<button class="quote-primary" type="submit" name="action" value="restart">Crear otra cotización</button>
@@ -101,19 +119,20 @@
 			<section class="quote-section" aria-labelledby="step-title">
 				<p class="step-kicker">PASO 3 DE 4</p>
 				<h2 id="step-title">Cuéntanos sobre tu carga</h2>
+				<figure class="cargo-illustration">
+					<img class="cargo-image" src="{% static 'images/carga-general.png' %}" alt="Ilustración de una caja que representa una carga general">
+					<figcaption>Carga general</figcaption>
+				</figure>
 				<form method="post" action="{% url 'cotizador' %}">
 					{% csrf_token %}
-					<fieldset class="cargo-fieldset">
-						<legend>Tipo de carga</legend>
-						<div class="cargo-grid">
-							{% for value, label, icon in cargo_types %}
-								<label class="cargo-option"><input type="radio" name="cargo_type" value="{{ value }}" {% if quote.cargo_type == value or not quote.cargo_type and value == 'general' %}checked{% endif %} required><span class="cargo-icon" aria-hidden="true">{{ icon }}</span><span>{{ label }}</span></label>
-							{% endfor %}
-						</div>
-					</fieldset>
 					<div class="weight-field">
-						<label for="weight-range">Peso total (kg)</label>
-						<div class="weight-controls"><input id="weight-range" type="range" min="1" max="5000" value="{{ quote.weight|default:'100' }}"><input id="weight-number" name="weight" type="number" min="1" max="5000" value="{{ quote.weight|default:'100' }}" required><span>kg</span></div>
+						<div class="weight-heading"><label for="weight-range">Peso total</label>
+							<fieldset class="unit-toggle"><legend>Unidad</legend>
+								<label><input type="radio" name="weight_unit" value="kg" {% if weight_unit == 'kg' %}checked{% endif %}><span>kg</span></label>
+								<label><input type="radio" name="weight_unit" value="ton" {% if weight_unit == 'ton' %}checked{% endif %}><span>Tonelada</span></label>
+							</fieldset>
+						</div>
+						<div class="weight-controls"><input id="weight-range" type="range" min="{% if weight_unit == 'ton' %}0.001{% else %}1{% endif %}" max="{% if weight_unit == 'ton' %}{{ max_weight_ton }}{% else %}{{ max_weight_kg }}{% endif %}" step="{% if weight_unit == 'ton' %}0.001{% else %}1{% endif %}" value="{{ weight_display }}"><input id="weight-number" name="weight" type="number" min="{% if weight_unit == 'ton' %}0.001{% else %}1{% endif %}" max="{% if weight_unit == 'ton' %}{{ max_weight_ton }}{% else %}{{ max_weight_kg }}{% endif %}" step="{% if weight_unit == 'ton' %}0.001{% else %}1{% endif %}" value="{{ weight_display }}" required></div>
 					</div>
 					{% if quote.transport == 'maritimo' %}
 						<label class="route-field container-field"><span>Tamaño de contenedor</span><select name="container_size"><option value="20" {% if quote.container_size != '40' %}selected{% endif %}>20 pies</option><option value="40" {% if quote.container_size == '40' %}selected{% endif %}>40 pies</option></select></label>
@@ -123,18 +142,16 @@
 				</form>
 			</section>
 		{% else %}
-			<section class="quote-section contact-section" aria-labelledby="step-title">
+			<section class="quote-section" aria-labelledby="step-title">
 				<p class="step-kicker">PASO 4 DE 4</p>
-				<h2 id="step-title">Datos de contacto</h2>
-				<p class="section-description">La estimación se calcula en USD y puede variar según disponibilidad.</p>
+				<h2 id="step-title">Resumen de tu cotización</h2>
+				<p class="section-description">Revisa los datos que ingresaste antes de confirmar.</p>
 				<form method="post" action="{% url 'cotizador' %}">
 					{% csrf_token %}
-					<div class="contact-fields">
-						<label class="route-field"><span>Nombre</span><input name="name" maxlength="120" value="{{ quote.name }}" autocomplete="name" required></label>
-						<label class="route-field"><span>Correo electrónico</span><input name="email" type="email" value="{{ quote.email }}" autocomplete="email" required></label>
-						<label class="route-field"><span>Teléfono</span><input name="phone" type="tel" value="{{ quote.phone }}" autocomplete="tel" placeholder="+56 9 1234 5678" required></label>
-					</div>
-					<div class="quote-actions"><button class="quote-secondary" type="submit" name="action" value="back" formnovalidate>← Volver</button><button class="quote-primary" type="submit">Ver resumen <span aria-hidden="true">→</span></button></div>
+					<dl class="quote-summary">
+						{% for field in summary_fields %}<div class="summary-row"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>{% endfor %}
+					</dl>
+					<div class="quote-actions"><button class="quote-secondary" type="submit" name="action" value="back" formnovalidate>← Volver</button><button class="quote-primary" type="submit" name="action" value="complete">Confirmar cotización</button></div>
 				</form>
 			</section>
 		{% endif %}
@@ -142,9 +159,76 @@
 	<script>
 		const weightRange = document.querySelector("#weight-range");
 		const weightNumber = document.querySelector("#weight-number");
-		if (weightRange && weightNumber) {
+		const weightUnitInputs = document.querySelectorAll('input[name="weight_unit"]');
+		if (weightRange && weightNumber && weightUnitInputs.length) {
+			let currentUnit = document.querySelector('input[name="weight_unit"]:checked').value;
+			const updateWeightUnit = (nextUnit) => {
+				if (nextUnit !== currentUnit && weightNumber.value) {
+					const factor = nextUnit === "ton" ? 0.001 : 1000;
+					weightNumber.value = Number(weightNumber.value * factor).toString();
+				}
+				const limits = nextUnit === "ton" ? ["0.001", "{{ max_weight_ton }}", "0.001"] : ["1", "{{ max_weight_kg }}", "1"];
+				for (const input of [weightRange, weightNumber]) {
+					input.min = limits[0];
+					input.max = limits[1];
+					input.step = limits[2];
+				}
+				weightRange.value = weightNumber.value;
+				currentUnit = nextUnit;
+			};
 			weightRange.addEventListener("input", () => { weightNumber.value = weightRange.value; });
 			weightNumber.addEventListener("input", () => { weightRange.value = weightNumber.value; });
+			weightUnitInputs.forEach((input) => input.addEventListener("change", () => updateWeightUnit(input.value)));
+		}
+		const estimateCopy = document.querySelector(".estimate-copy");
+		const estimateMinimum = document.querySelector("#estimate-minimum");
+		const estimateMaximum = document.querySelector("#estimate-maximum");
+		const estimatedPrice = document.querySelector("#estimated-price");
+		const containerCount = document.querySelector("#container-count");
+		const containerLabel = document.querySelector("#container-label");
+		if (estimateCopy && weightNumber && weightUnitInputs.length) {
+			const updateEstimate = () => {
+				const unit = document.querySelector('input[name="weight_unit"]:checked').value;
+				const weight = Number(weightNumber.value) * (unit === "ton" ? 1000 : 1);
+				if (!Number.isFinite(weight) || weight <= 0) return;
+				const transport = estimateCopy.dataset.transport;
+				let minimum;
+				let maximum;
+				let containers = 0;
+				if (transport === "maritimo") {
+					const capacity = Number(estimateCopy.dataset.containerCapacity);
+					containers = Math.ceil(weight / capacity);
+					minimum = containers * Number(estimateCopy.dataset.priceMin) + (weight / capacity) * (Number(estimateCopy.dataset.priceMax) - Number(estimateCopy.dataset.priceMin));
+					maximum = minimum;
+				} else if (transport === "aereo") {
+					minimum = 148 + weight * 1.5;
+					maximum = 150 + weight * 2.52;
+				} else {
+					minimum = 40 + weight * 0.6;
+					maximum = 100 + weight;
+				}
+				const currency = estimateCopy.dataset.currency;
+				const conversion = currency === "CLP" ? Number(estimateCopy.dataset.exchangeRate) : 1;
+				const formatAmount = (amount) => {
+					const roundedUsd = Math.floor(amount + 0.5);
+					const rounded = Math.floor(roundedUsd * conversion + 0.5);
+					return `${currency === "CLP" ? "$" : "US$"}${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(rounded)}`;
+				};
+				if (estimateMinimum && estimateMaximum) {
+					estimateMinimum.textContent = formatAmount(minimum);
+					estimateMaximum.textContent = formatAmount(maximum);
+				} else if (estimatedPrice) {
+					estimatedPrice.textContent = `${formatAmount(minimum)} ${currency}`;
+				}
+				if (containerCount && containers) {
+					containerCount.textContent = containers;
+					containerLabel.textContent = ` contenedor${containers === 1 ? "" : "es"} · máximo 25 toneladas por contenedor`;
+				}
+			};
+			weightRange?.addEventListener("input", updateEstimate);
+			weightNumber.addEventListener("input", updateEstimate);
+			weightUnitInputs.forEach((input) => input.addEventListener("change", updateEstimate));
+			updateEstimate();
 		}
 	</script>
 </body>
