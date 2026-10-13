@@ -1,15 +1,23 @@
 import tempfile
+from datetime import timedelta
+from io import BytesIO
 from pathlib import Path
+from unittest.mock import patch
 
+from django.core.cache import cache
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from openpyxl import Workbook, load_workbook
 from Admin.models import UserAccess
+from .views import USD_CLP_CACHE_KEY
 
 
 class TariffEditorTests(TestCase):
 	def setUp(self):
+		cache.delete(USD_CLP_CACHE_KEY)
+		self.addCleanup(cache.delete, USD_CLP_CACHE_KEY)
 		temporary_directory = tempfile.TemporaryDirectory()
 		self.addCleanup(temporary_directory.cleanup)
 		self.workbook_path = Path(temporary_directory.name) / "TarifasFijas.xlsx"
@@ -53,6 +61,8 @@ class TariffEditorTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertContains(response, "Tipo de transporte")
 		self.assertContains(response, "Aéreo")
+		self.assertContains(response, "Marítimo")
+		self.assertNotContains(response, "Terrestre")
 		self.assertNotContains(response, "Puerto Origen")
 		self.assertNotContains(response, "Tarifa 20 Min")
 		self.assertNotContains(response, "TarifasFijas")
@@ -145,12 +155,17 @@ class TariffEditorTests(TestCase):
 			"container_size": "20",
 		}
 		session.save()
-		self.client.post(reverse("cotizador"), {"action": "currency", "currency": "CLP"})
-
-		response = self.client.get(reverse("cotizador"))
+		with patch("Cotizador.views._usd_clp_rate", return_value={
+			"rate": "950",
+			"date": "13/10/2026",
+			"is_stale": False,
+		}):
+			self.client.post(reverse("cotizador"), {"action": "currency", "currency": "CLP"})
+			response = self.client.get(reverse("cotizador"))
 
 		self.assertEqual(response.context["estimate"], {"minimum": "1.045.000", "maximum": "1.045.000"})
 		self.assertContains(response, "$1.045.000 CLP")
+		self.assertContains(response, "mindicador.cl")
 
 	def test_quote_summary_formats_tons_and_shows_required_container_count(self):
 		self.client.force_login(self.common)
@@ -174,7 +189,7 @@ class TariffEditorTests(TestCase):
 		self.assertContains(response, "Contenedores")
 		self.assertContains(response, 'dd>2</dd>')
 
-	def test_terrestrial_summary_shows_container_equation(self):
+	def test_legacy_terrestrial_session_is_reset_and_not_offered(self):
 		self.client.force_login(self.common)
 		session = self.client.session
 		session["quote_step"] = 4
@@ -190,9 +205,10 @@ class TariffEditorTests(TestCase):
 
 		response = self.client.get(reverse("cotizador"))
 
-		self.assertEqual(response.context["container_count"], 5)
-		self.assertContains(response, "Contenedores")
-		self.assertContains(response, 'dd>5</dd>')
+		self.assertEqual(response.context["step"], 1)
+		self.assertEqual(response.context["quote"], {})
+		self.assertNotContains(response, "Terrestre")
+		self.assertNotContains(response, "data-transport=\"terrestre\"")
 
 	def test_currency_toggle_converts_displayed_estimate_to_clp(self):
 		self.client.force_login(self.common)
@@ -206,14 +222,63 @@ class TariffEditorTests(TestCase):
 		}
 		session.save()
 
-		response = self.client.post(reverse("cotizador"), {"action": "currency", "currency": "CLP"})
-
-		self.assertRedirects(response, reverse("cotizador"))
-		response = self.client.get(reverse("cotizador"))
+		with patch("Cotizador.views._usd_clp_rate", return_value={
+			"rate": "950",
+			"date": "13/10/2026",
+			"is_stale": False,
+		}):
+			response = self.client.post(reverse("cotizador"), {"action": "currency", "currency": "CLP"})
+			self.assertRedirects(response, reverse("cotizador"))
+			response = self.client.get(reverse("cotizador"))
 		self.assertContains(response, 'id="estimate-minimum">$283.100</span>')
 		self.assertContains(response, 'id="estimate-maximum">$381.900</span>')
 		self.assertContains(response, "CLP")
-		self.assertContains(response, "1 USD = $950 CLP")
+		self.assertContains(response, "1 USD = $950,00 CLP")
+
+	def test_currency_conversion_fails_visibly_without_a_live_or_cached_rate(self):
+		self.client.force_login(self.common)
+		with patch("Cotizador.views._usd_clp_rate", return_value=None):
+			response = self.client.post(reverse("cotizador"), {"action": "currency", "currency": "CLP"})
+			self.assertEqual(response.status_code, 302)
+			response = self.client.get(reverse("cotizador"))
+
+		self.assertContains(response, "No se pudo consultar el dólar observado")
+		self.assertEqual(self.client.session.get("quote_currency", "USD"), "USD")
+
+	def test_exchange_rate_is_fetched_and_cached_for_one_hour(self):
+		from .views import _usd_clp_rate
+
+		response = BytesIO(
+			b'{"serie":[{"fecha":"2026-10-13T00:00:00.000Z","valor":923.45}]}'
+		)
+		with patch("Cotizador.views.urlopen", return_value=response) as fetch:
+			rate = _usd_clp_rate()
+			cached_rate = _usd_clp_rate()
+
+		self.assertEqual(rate["rate"], "923.45")
+		self.assertEqual(rate["date"], "13/10/2026")
+		self.assertFalse(rate["is_stale"])
+		self.assertEqual(cached_rate, rate)
+		fetch.assert_called_once()
+
+	def test_exchange_rate_uses_last_successful_value_when_service_is_unavailable(self):
+		from .views import _usd_clp_rate
+		from urllib.error import URLError
+
+		cache.set(
+			USD_CLP_CACHE_KEY,
+			{
+				"rate": "920.5",
+				"date": "12/10/2026",
+				"fetched_at": (timezone.now() - timedelta(hours=2)).isoformat(),
+			},
+			timeout=None,
+		)
+		with patch("Cotizador.views.urlopen", side_effect=URLError("offline")):
+			rate = _usd_clp_rate()
+
+		self.assertEqual(rate["rate"], "920.5")
+		self.assertTrue(rate["is_stale"])
 
 	def test_tonne_input_is_stored_as_kilograms_for_estimation(self):
 		self.client.force_login(self.common)
@@ -258,6 +323,8 @@ class TariffEditorTests(TestCase):
 		self.assertContains(response, "San Antonio")
 		self.assertContains(response, "Muestras")
 		self.assertNotContains(response, "Datos de contacto")
+		self.assertContains(response, "Generar informe")
+		self.assertContains(response, "Flete estimado")
 
 	def test_summary_step_has_a_back_button(self):
 		self.client.force_login(self.common)
@@ -269,6 +336,7 @@ class TariffEditorTests(TestCase):
 		response = self.client.get(reverse("cotizador"))
 
 		self.assertContains(response, 'name="action" value="back" formnovalidate')
+		self.assertContains(response, "Generar informe")
 
 	def test_general_cargo_is_a_static_image_and_selected_automatically(self):
 		self.client.force_login(self.common)

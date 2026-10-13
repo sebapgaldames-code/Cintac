@@ -177,7 +177,7 @@ tbody tr:hover { background: #fffaf5; }
 .step-kicker { margin: 0 0 8px; color: var(--gold); font-size: 10px; font-weight: 700; letter-spacing: 1.2px; }
 .quote-section h2, .quote-complete h2 { margin: 0; color: var(--ink); font-family: Georgia, "Times New Roman", serif; font-size: 25px; font-weight: 400; line-height: 1.25; }
 .section-description { margin: 8px 0 22px; color: var(--muted); font-size: 13px; line-height: 1.55; }
-.transport-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
+.transport-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 22px; }
 .transport-card { min-height: 156px; display: grid; justify-items: center; align-content: center; gap: 9px; padding: 15px; border: 1px solid var(--line); border-radius: 5px; background: var(--night-raised); cursor: pointer; text-align: center; transition: border-color 160ms ease, background 160ms ease, transform 160ms ease; }
 .transport-card:hover { transform: translateY(-2px); border-color: var(--accent); }
 .transport-card input { position: absolute; width: 1px; height: 1px; opacity: 0; }
@@ -235,9 +235,25 @@ tbody tr:hover { background: #fffaf5; }
 .quote-complete h2 { font-size: 32px; }
 .quote-complete > p:not(.eyebrow) { color: var(--muted); font-size: 14px; line-height: 1.6; }
 .quote-complete form { margin-top: 26px; }
+.quote-complete .quote-actions form { margin: 0; }
+.printable-report .eyebrow { margin-top: 0; }
 
 .table-page .app-header { background: #fff; border-color: var(--line); }
 .table-page .brand, .table-page .header-actions a, .table-page .quiet-button { color: var(--ink); }
+
+@media print {
+	@page { margin: 18mm; }
+	body.quote-page { min-width: 0; background: #fff; color: #000; }
+	body.quote-page * { visibility: hidden !important; }
+	body.quote-page .printable-report,
+	body.quote-page .printable-report * { visibility: visible !important; }
+	body.quote-page .printable-report { position: absolute; top: 0; left: 0; width: 100%; color: #000; }
+	body.quote-page .quote-summary { max-width: none; border-color: #999; }
+	body.quote-page .summary-row { break-inside: avoid; border-color: #ccc; }
+	body.quote-page .summary-row dt,
+	body.quote-page .summary-row dd,
+	body.quote-page .printable-report .eyebrow { color: #000; }
+}
 
 @media (max-width: 600px) {
 	.quote-header { align-items: flex-start; flex-wrap: wrap; padding: 8px 14px; }

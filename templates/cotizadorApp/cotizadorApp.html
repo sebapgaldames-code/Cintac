@@ -42,7 +42,7 @@
 		{% if estimate %}
 			<aside class="estimate-banner" aria-live="polite">
 				<span class="estimate-icon" aria-hidden="true">$</span>
-				<div class="estimate-copy" data-transport="{{ quote.transport }}" data-currency="{{ currency }}" data-exchange-rate="{{ usd_to_clp_rate }}" {% if maritime_tariff %}data-price-min="{{ maritime_tariff.minimum }}" data-price-max="{{ maritime_tariff.maximum }}" data-container-capacity="{{ container_capacity_kg }}"{% endif %}>
+				<div class="estimate-copy" data-transport="{{ quote.transport }}" data-currency="{{ currency }}" data-exchange-rate="{{ usd_to_clp_rate_value }}" {% if maritime_tariff %}data-price-min="{{ maritime_tariff.minimum }}" data-price-max="{{ maritime_tariff.maximum }}" data-container-capacity="{{ container_capacity_kg }}"{% endif %}>
 					<small>Estimación referencial</small>
 					<strong>
 						{% if estimate_is_range %}
@@ -52,7 +52,8 @@
 						{% endif %}
 					</strong>
 					{% if quote.transport == 'maritimo' and container_count %}<small class="container-note"><span id="container-count">{{ container_count }}</span><span id="container-label"> contenedor{% if container_count != 1 %}es{% endif %} · máximo 25 toneladas por contenedor</span></small>{% endif %}
-					{% if currency == 'CLP' %}<small class="exchange-note">Cambio referencial: 1 USD = ${{ usd_to_clp_rate }} CLP</small>{% endif %}
+					{% if currency == 'CLP' %}<small class="exchange-note">Dólar observado al {{ usd_to_clp_rate_date }}: 1 USD = ${{ usd_to_clp_rate }} CLP · mindicador.cl</small>{% endif %}
+					{% if usd_to_clp_rate_stale %}<small class="exchange-note">No fue posible actualizar la tasa; se muestra la última lectura disponible.</small>{% endif %}
 				</div>
 				<form class="currency-switch" method="post" action="{% url 'cotizador' %}" aria-label="Moneda de la estimación">
 					{% csrf_token %}<input type="hidden" name="action" value="currency">
@@ -62,22 +63,27 @@
 			</aside>
 		{% endif %}
 
+		{% if currency_error %}<div class="quote-errors" role="alert"><p>{{ currency_error }}</p></div>{% endif %}
 		{% if errors %}
 			<div class="quote-errors" role="alert">{% for error in errors %}<p>{{ error }}</p>{% endfor %}</div>
 		{% endif %}
 
 		{% if quote.completed %}
 			<section class="quote-complete" aria-labelledby="complete-title">
-				<p class="eyebrow">ESTIMACIÓN PREPARADA</p>
-				<h2 id="complete-title">Cotización lista</h2>
-				<p>Tu estimación quedó preparada con los datos ingresados:</p>
-				<dl class="quote-summary">
-					{% for field in summary_fields %}<div class="summary-row"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>{% endfor %}
-				</dl>
-				<form method="post" action="{% url 'cotizador' %}">
-					{% csrf_token %}
-					<button class="quote-primary" type="submit" name="action" value="restart">Crear otra cotización</button>
-				</form>
+				<div class="printable-report">
+					<p class="eyebrow">ESTIMACIÓN PREPARADA · INFORME DE COTIZACIÓN · {% now "d/m/Y H:i" %}</p>
+					<h2 id="complete-title">Cotización lista</h2>
+					<p>Estimación preparada con los datos ingresados:</p>
+					<dl class="quote-summary">
+						{% for field in summary_fields %}<div class="summary-row"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>{% endfor %}
+						{% if estimate %}<div class="summary-row"><dt>Flete estimado</dt><dd>{% if estimate_is_range %}{{ estimate.minimum }} – {{ estimate.maximum }}{% else %}{{ estimate.minimum }}{% endif %} {{ currency }}</dd></div>{% endif %}
+						{% if currency == 'CLP' %}<div class="summary-row"><dt>Tipo de cambio</dt><dd>1 USD = ${{ usd_to_clp_rate }} CLP (dólar observado al {{ usd_to_clp_rate_date }}, mindicador.cl)</dd></div>{% endif %}
+					</dl>
+				</div>
+				<div class="quote-actions quote-actions-end">
+					<button class="quote-secondary print-quote" type="button">Generar informe</button>
+					<form method="post" action="{% url 'cotizador' %}">{% csrf_token %}<button class="quote-primary" type="submit" name="action" value="restart">Crear otra cotización</button></form>
+				</div>
 			</section>
 		{% elif step == 1 %}
 			<section class="quote-section" aria-labelledby="step-title">
@@ -148,10 +154,15 @@
 				<p class="section-description">Revisa los datos que ingresaste antes de confirmar.</p>
 				<form method="post" action="{% url 'cotizador' %}">
 					{% csrf_token %}
-					<dl class="quote-summary">
-						{% for field in summary_fields %}<div class="summary-row"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>{% endfor %}
-					</dl>
-					<div class="quote-actions"><button class="quote-secondary" type="submit" name="action" value="back" formnovalidate>← Volver</button><button class="quote-primary" type="submit" name="action" value="complete">Confirmar cotización</button></div>
+					<div class="printable-report">
+						<p class="eyebrow">INFORME DE COTIZACIÓN · {% now "d/m/Y H:i" %}</p>
+						<dl class="quote-summary">
+							{% for field in summary_fields %}<div class="summary-row"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>{% endfor %}
+							{% if estimate %}<div class="summary-row"><dt>Flete estimado</dt><dd>{% if estimate_is_range %}{{ estimate.minimum }} – {{ estimate.maximum }}{% else %}{{ estimate.minimum }}{% endif %} {{ currency }}</dd></div>{% endif %}
+							{% if currency == 'CLP' %}<div class="summary-row"><dt>Tipo de cambio</dt><dd>1 USD = ${{ usd_to_clp_rate }} CLP (dólar observado al {{ usd_to_clp_rate_date }}, mindicador.cl)</dd></div>{% endif %}
+						</dl>
+					</div>
+					<div class="quote-actions"><button class="quote-secondary" type="submit" name="action" value="back" formnovalidate>← Volver</button><button class="quote-secondary print-quote" type="button">Generar informe</button><button class="quote-primary" type="submit" name="action" value="complete">Confirmar cotización</button></div>
 				</form>
 			</section>
 		{% endif %}
@@ -159,6 +170,9 @@
 	<script>
 		const weightRange = document.querySelector("#weight-range");
 		const weightNumber = document.querySelector("#weight-number");
+		document.querySelectorAll(".print-quote").forEach((button) => {
+			button.addEventListener("click", () => window.print());
+		});
 		const weightUnitInputs = document.querySelectorAll('input[name="weight_unit"]');
 		if (weightRange && weightNumber && weightUnitInputs.length) {
 			let currentUnit = document.querySelector('input[name="weight_unit"]:checked').value;

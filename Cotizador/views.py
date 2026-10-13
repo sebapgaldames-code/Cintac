@@ -1,12 +1,18 @@
 import os
 import tempfile
+import json
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
+from django.core.cache import cache
 from django.shortcuts import redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from openpyxl import load_workbook
 from Admin.permissions import can_edit_tariffs, can_view_tariffs, is_admin_user
@@ -15,13 +21,14 @@ from Admin.permissions import can_edit_tariffs, can_view_tariffs, is_admin_user
 TRANSPORTS = (
 	{"id": "aereo", "label": "Aéreo", "icon": "✈", "starting_price": "Desde US$150"},
 	{"id": "maritimo", "label": "Marítimo", "icon": "▰", "starting_price": "Por ruta y contenedor"},
-	{"id": "terrestre", "label": "Terrestre", "icon": "▰", "starting_price": "Desde US$100"},
 )
 CARGO_TYPES = (("general", "General", "📦"),)
 WEIGHT_UNITS = {"kg", "ton"}
 CURRENCIES = {"USD", "CLP"}
 CONTAINER_CAPACITY_KG = 25_000
 MAX_QUOTE_WEIGHT_KG = 250_000
+USD_CLP_CACHE_KEY = "cotizador:usd-clp-rate"
+USD_CLP_CACHE_SECONDS = 60 * 60
 
 
 def _workbook_path():
@@ -62,6 +69,37 @@ def _available_routes():
 	return routes
 
 
+def _usd_clp_rate():
+	cached_rate = cache.get(USD_CLP_CACHE_KEY)
+	now = timezone.now()
+	if cached_rate:
+		fetched_at = datetime.fromisoformat(cached_rate["fetched_at"])
+		if (now - fetched_at).total_seconds() < USD_CLP_CACHE_SECONDS:
+			return {**cached_rate, "is_stale": False}
+
+	url = getattr(settings, "USD_CLP_RATE_URL", "https://mindicador.cl/api/dolar")
+	try:
+		request = Request(url, headers={"User-Agent": "CintacCotizador/1.0"})
+		with urlopen(request, timeout=5) as response:
+			payload = json.load(response)
+		latest = payload["serie"][0]
+		rate = Decimal(str(latest["valor"]))
+		rate_date = date.fromisoformat(latest["fecha"][:10]).strftime("%d/%m/%Y")
+		if not rate.is_finite() or rate <= 0:
+			raise ValueError("La fuente entregó una tasa de cambio no válida.")
+		cached_rate = {
+			"rate": str(rate),
+			"date": rate_date,
+			"fetched_at": now.isoformat(),
+		}
+		cache.set(USD_CLP_CACHE_KEY, cached_rate, timeout=None)
+		return {**cached_rate, "is_stale": False}
+	except (URLError, TimeoutError, OSError, ValueError, KeyError, TypeError, IndexError, InvalidOperation):
+		if cached_rate:
+			return {**cached_rate, "is_stale": True}
+		return None
+
+
 def _estimate_quote(transport, route, weight, container_size):
 	if transport == "maritimo":
 		container_count = (int(weight) + CONTAINER_CAPACITY_KG - 1) // CONTAINER_CAPACITY_KG
@@ -73,14 +111,9 @@ def _estimate_quote(transport, route, weight, container_size):
 			+ load_ratio * (maximum_tariff - minimum_tariff)
 		).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 		return int(price), int(price)
-	else:
-		weight = Decimal(str(weight))
-		if transport == "aereo":
-			minimum = Decimal("148") + weight * Decimal("1.5")
-			maximum = Decimal("150") + weight * Decimal("2.52")
-		else:
-			minimum = Decimal("40") + weight * Decimal("0.6")
-			maximum = Decimal("100") + weight * Decimal("1.0")
+	weight = Decimal(str(weight))
+	minimum = Decimal("148") + weight * Decimal("1.5")
+	maximum = Decimal("150") + weight * Decimal("2.52")
 	minimum = Decimal(str(minimum)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 	maximum = Decimal(str(maximum)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 	return int(minimum), int(maximum)
@@ -142,7 +175,14 @@ def cotizador(request):
 	quote = request.session.get("quote_data", {})
 	step = request.session.get("quote_step", 1)
 	errors = []
+	currency_error = request.session.pop("quote_currency_error", None)
 	routes = _available_routes()
+	transport_ids = {item["id"] for item in TRANSPORTS}
+	if quote.get("transport") and quote["transport"] not in transport_ids:
+		quote = {}
+		step = 1
+		request.session.pop("quote_data", None)
+		request.session["quote_step"] = step
 
 	if request.method == "POST":
 		action = request.POST.get("action")
@@ -152,8 +192,18 @@ def cotizador(request):
 			return redirect("cotizador")
 		if action == "currency":
 			currency = request.POST.get("currency")
-			if currency in CURRENCIES:
+			if currency == "CLP":
+				if _usd_clp_rate() is not None:
+					request.session["quote_currency"] = currency
+					request.session.pop("quote_currency_error", None)
+				else:
+					request.session["quote_currency_error"] = (
+						"No se pudo consultar el dólar observado. Mantuvimos la cotización en USD; "
+						"intenta cambiar a CLP nuevamente cuando haya conexión."
+					)
+			elif currency in CURRENCIES:
 				request.session["quote_currency"] = currency
+				request.session.pop("quote_currency_error", None)
 			return redirect("cotizador")
 		if action == "back":
 			request.session["quote_step"] = max(1, step - 1)
@@ -229,6 +279,20 @@ def cotizador(request):
 	currency = request.session.get("quote_currency", "USD")
 	if currency not in CURRENCIES:
 		currency = "USD"
+	exchange_rate_data = _usd_clp_rate() if currency == "CLP" else None
+	if currency == "CLP" and exchange_rate_data is None:
+		currency = "USD"
+		request.session["quote_currency"] = currency
+		currency_error = (
+			"No se pudo consultar el dólar observado. La cotización se muestra en USD "
+			"para evitar usar una tasa desactualizada."
+		)
+	usd_to_clp_rate = Decimal(exchange_rate_data["rate"]) if exchange_rate_data else None
+	usd_to_clp_rate_display = (
+		format(usd_to_clp_rate, ",.2f").replace(",", "X").replace(".", ",").replace("X", ".")
+		if usd_to_clp_rate
+		else ""
+	)
 	weight_unit = quote.get("weight_unit", "kg")
 	if weight_unit not in WEIGHT_UNITS:
 		weight_unit = "kg"
@@ -283,8 +347,7 @@ def cotizador(request):
 			quote.get("container_size", "20"),
 		)
 		estimate = {"minimum": minimum, "maximum": maximum}
-		usd_to_clp_rate = Decimal(str(getattr(settings, "USD_TO_CLP_RATE", "950")))
-		if currency == "CLP":
+		if currency == "CLP" and usd_to_clp_rate is not None:
 			minimum_clp = int((Decimal(minimum) * usd_to_clp_rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 			maximum_clp = int((Decimal(maximum) * usd_to_clp_rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 			estimate.update(
@@ -300,7 +363,11 @@ def cotizador(request):
 		"quote": quote,
 		"summary_fields": summary_fields,
 		"currency": currency,
-		"usd_to_clp_rate": format(Decimal(str(getattr(settings, "USD_TO_CLP_RATE", "950"))), ",.0f").replace(",", "."),
+		"usd_to_clp_rate": usd_to_clp_rate_display,
+		"usd_to_clp_rate_value": str(usd_to_clp_rate) if usd_to_clp_rate else "",
+		"usd_to_clp_rate_date": exchange_rate_data["date"] if exchange_rate_data else "",
+		"usd_to_clp_rate_stale": exchange_rate_data["is_stale"] if exchange_rate_data else False,
+		"currency_error": currency_error,
 		"weight_unit": weight_unit,
 		"weight_display": weight_display,
 		"max_weight_kg": MAX_QUOTE_WEIGHT_KG,
