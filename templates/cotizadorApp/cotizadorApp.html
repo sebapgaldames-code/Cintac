@@ -77,7 +77,6 @@
 					<dl class="quote-summary">
 						{% for field in summary_fields %}<div class="summary-row"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>{% endfor %}
 						{% if estimate %}<div class="summary-row"><dt>Flete estimado</dt><dd>{% if estimate_is_range %}{{ estimate.minimum }} – {{ estimate.maximum }}{% else %}{{ estimate.minimum }}{% endif %} {{ currency }}</dd></div>{% endif %}
-						{% if currency == 'CLP' %}<div class="summary-row"><dt>Tipo de cambio</dt><dd>1 USD = ${{ usd_to_clp_rate }} CLP (dólar observado al {{ usd_to_clp_rate_date }}, mindicador.cl)</dd></div>{% endif %}
 					</dl>
 				</div>
 				<div class="quote-actions quote-actions-end">
@@ -117,6 +116,7 @@
 						<span class="route-connector" aria-hidden="true"></span>
 						<label class="route-field"><span>Destino</span><select name="destination" required><option value="">Selecciona destino...</option>{% for destination in destinations %}<option value="{{ destination }}" {% if quote.destination == destination %}selected{% endif %}>{{ destination }}</option>{% endfor %}</select></label>
 					</div>
+					<label class="route-field delay-field" for="delay-days"><span>Días estimados de posibles retrasos</span><input id="delay-days" name="delay_days" type="number" min="0" step="1" value="{{ delay_days }}" required><small>Se sumarán al rango de tránsito de la ruta.</small></label>
 					<p class="route-hint">Las rutas y tarifas disponibles se actualizan desde el archivo maestro.</p>
 					<div class="quote-actions"><button class="quote-secondary" type="submit" name="action" value="back" formnovalidate>← Volver</button><button class="quote-primary" type="submit">Continuar <span aria-hidden="true">→</span></button></div>
 				</form>
@@ -159,7 +159,6 @@
 						<dl class="quote-summary">
 							{% for field in summary_fields %}<div class="summary-row"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>{% endfor %}
 							{% if estimate %}<div class="summary-row"><dt>Flete estimado</dt><dd>{% if estimate_is_range %}{{ estimate.minimum }} – {{ estimate.maximum }}{% else %}{{ estimate.minimum }}{% endif %} {{ currency }}</dd></div>{% endif %}
-							{% if currency == 'CLP' %}<div class="summary-row"><dt>Tipo de cambio</dt><dd>1 USD = ${{ usd_to_clp_rate }} CLP (dólar observado al {{ usd_to_clp_rate_date }}, mindicador.cl)</dd></div>{% endif %}
 						</dl>
 					</div>
 					<div class="quote-actions"><button class="quote-secondary" type="submit" name="action" value="back" formnovalidate>← Volver</button><button class="quote-secondary print-quote" type="button">Generar informe</button><button class="quote-primary" type="submit" name="action" value="complete">Confirmar cotización</button></div>

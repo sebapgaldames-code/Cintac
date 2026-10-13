@@ -220,6 +220,7 @@ def cotizador(request):
 		elif step == 2:
 			origin = request.POST.get("origin", "")
 			destination = request.POST.get("destination", "")
+			delay_days_raw = request.POST.get("delay_days", "0")
 			quote.update({"origin": origin, "destination": destination})
 			route = next(
 				(item for item in routes if item["origin"] == origin and item["destination"] == destination),
@@ -228,7 +229,19 @@ def cotizador(request):
 			if route is None:
 				errors.append("Selecciona una ruta disponible.")
 			else:
-				quote.update({"origin": origin, "destination": destination, "country": route["country"]})
+				try:
+					delay_days = int(delay_days_raw)
+					if delay_days < 0:
+						raise ValueError
+				except (TypeError, ValueError):
+					errors.append("Ingresa días de retraso como un número entero igual o mayor que cero.")
+				if not errors:
+					quote.update({
+						"origin": origin,
+						"destination": destination,
+						"country": route["country"],
+						"delay_days": delay_days,
+					})
 		elif step == 3:
 			cargo_type = request.POST.get("cargo_type", "general")
 			weight = request.POST.get("weight", "")
@@ -323,6 +336,22 @@ def cotizador(request):
 		for label, field in (("Origen", "origin"), ("Destino", "destination")):
 			if quote.get(field):
 				summary_fields.append({"label": label, "value": quote[field]})
+		if selected_route:
+			try:
+				transit_min = int(Decimal(str(selected_route["transit_min"])))
+				transit_max = int(Decimal(str(selected_route["transit_max"])))
+				delay_days = int(quote.get("delay_days", 0))
+			except (InvalidOperation, TypeError, ValueError):
+				transit_min = transit_max = delay_days = None
+			if transit_min is not None and transit_max is not None:
+				summary_fields.append({
+					"label": "Tiempo total de espera estimado (sin retrasos)",
+					"value": f"{transit_min}–{transit_max} días",
+				})
+				summary_fields.append({
+					"label": "Tiempo total de espera + días estimados de retraso",
+					"value": f"{transit_min + delay_days}–{transit_max + delay_days} días",
+				})
 		if cargo_label:
 			summary_fields.append({"label": "Tipo de carga", "value": cargo_label})
 		if quote.get("weight"):
@@ -357,11 +386,17 @@ def cotizador(request):
 				}
 			)
 
+	delay_days_display = (
+		request.POST.get("delay_days", quote.get("delay_days", 0))
+		if request.method == "POST" and step == 2
+		else quote.get("delay_days", 0)
+	)
 	context = {
 		"step": step,
 		"progress": round((step - 1) * 100 / 3),
 		"quote": quote,
 		"summary_fields": summary_fields,
+		"delay_days": delay_days_display,
 		"currency": currency,
 		"usd_to_clp_rate": usd_to_clp_rate_display,
 		"usd_to_clp_rate_value": str(usd_to_clp_rate) if usd_to_clp_rate else "",

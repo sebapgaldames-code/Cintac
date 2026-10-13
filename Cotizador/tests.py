@@ -99,6 +99,37 @@ class TariffEditorTests(TestCase):
 
 		self.assertEqual(response.context["step"], 3)
 		self.assertEqual(response.context["estimate"], {"minimum": 298, "maximum": 402})
+		self.assertEqual(self.client.session["quote_data"]["delay_days"], 0)
+
+	def test_route_step_accepts_nonnegative_estimated_delay_days(self):
+		self.client.force_login(self.common)
+		self.client.post(reverse("cotizador"), {"transport": "aereo"})
+		response = self.client.get(reverse("cotizador"))
+		self.assertContains(response, 'name="delay_days"')
+		self.assertContains(response, "Días estimados de posibles retrasos")
+
+		response = self.client.post(
+			reverse("cotizador"),
+			{"origin": "Shanghai", "destination": "San Antonio", "delay_days": "7"},
+		)
+
+		self.assertRedirects(response, reverse("cotizador"))
+		self.assertEqual(self.client.session["quote_data"]["delay_days"], 7)
+
+	def test_route_step_rejects_negative_or_fractional_delay_days(self):
+		self.client.force_login(self.common)
+		session = self.client.session
+		session["quote_step"] = 2
+		session["quote_data"] = {"transport": "aereo"}
+		session.save()
+
+		for invalid_delay in ("-1", "1.5", "not-a-number"):
+			response = self.client.post(
+				reverse("cotizador"),
+				{"origin": "Shanghai", "destination": "San Antonio", "delay_days": invalid_delay},
+			)
+			self.assertContains(response, "número entero igual o mayor que cero")
+			self.assertEqual(self.client.session["quote_step"], 2)
 
 	def test_maritime_estimate_uses_excel_and_container_size(self):
 		self.client.force_login(self.common)
@@ -188,6 +219,30 @@ class TariffEditorTests(TestCase):
 		self.assertEqual(response.context["container_count"], 2)
 		self.assertContains(response, "Contenedores")
 		self.assertContains(response, 'dd>2</dd>')
+
+	def test_quote_summary_shows_transit_range_and_range_with_added_delay(self):
+		self.client.force_login(self.common)
+		session = self.client.session
+		session["quote_step"] = 4
+		session["quote_data"] = {
+			"transport": "maritimo",
+			"origin": "Shanghai",
+			"destination": "San Antonio",
+			"cargo_type": "general",
+			"weight": 100,
+			"container_size": "20",
+			"delay_days": 7,
+		}
+		session.save()
+
+		response = self.client.get(reverse("cotizador"))
+
+		self.assertContains(response, "Tiempo total de espera estimado (sin retrasos)")
+		self.assertContains(response, "25–30 días")
+		self.assertContains(response, "Tiempo total de espera + días estimados de retraso")
+		self.assertContains(response, "32–37 días")
+		self.assertContains(response, "Generar informe")
+		self.assertNotContains(response, "Tipo de cambio")
 
 	def test_legacy_terrestrial_session_is_reset_and_not_offered(self):
 		self.client.force_login(self.common)
