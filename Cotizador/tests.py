@@ -62,6 +62,8 @@ class TariffEditorTests(TestCase):
 		self.assertContains(response, "Tipo de transporte")
 		self.assertContains(response, "Aéreo")
 		self.assertContains(response, "Marítimo")
+		self.assertContains(response, 'src="/static/images/CotizacionAerea.jpg"')
+		self.assertContains(response, 'src="/static/images/CotizacionMaritima.jpg"')
 		self.assertNotContains(response, "Terrestre")
 		self.assertNotContains(response, "Puerto Origen")
 		self.assertNotContains(response, "Tarifa 20 Min")

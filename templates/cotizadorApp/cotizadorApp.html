@@ -95,7 +95,7 @@
 						{% for transport in transports %}
 							<label class="transport-card">
 								<input type="radio" name="transport" value="{{ transport.id }}" {% if quote.transport == transport.id %}checked{% endif %} required>
-								<span class="transport-icon" aria-hidden="true">{{ transport.icon }}</span>
+								<img class="transport-icon" src="{% static transport.image %}" alt="">
 								<strong>{{ transport.label }}</strong>
 								<small>{{ transport.starting_price }}</small>
 							</label>

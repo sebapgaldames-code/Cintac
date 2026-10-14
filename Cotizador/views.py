@@ -19,8 +19,8 @@ from Admin.permissions import can_edit_tariffs, can_view_tariffs, is_admin_user
 
 
 TRANSPORTS = (
-	{"id": "aereo", "label": "Aéreo", "icon": "✈", "starting_price": "Desde US$150"},
-	{"id": "maritimo", "label": "Marítimo", "icon": "▰", "starting_price": "Por ruta y contenedor"},
+	{"id": "aereo", "label": "Aéreo", "image": "images/CotizacionAerea.jpg", "starting_price": "Desde US$150"},
+	{"id": "maritimo", "label": "Marítimo", "image": "images/CotizacionMaritima.jpg", "starting_price": "Por ruta y contenedor"},
 )
 CARGO_TYPES = (("general", "General", "📦"),)
 WEIGHT_UNITS = {"kg", "ton"}

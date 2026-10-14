@@ -118,6 +118,40 @@ class RegistrationTests(TestCase):
 		self.assertContains(response, "Crear cuenta")
 		self.assertContains(response, 'name="username"')
 		self.assertContains(response, 'name="email"')
+		self.assertContains(response, "Ingresa una dirección de correo electrónico válida.")
+		self.assertContains(response, "setCustomValidity")
+
+	def test_registration_rejects_invalid_email_with_spanish_message(self):
+		response = self.client.post(
+			reverse("registro"),
+			{
+				"username": "NuevaCuenta",
+				"email": "asd",
+				"password1": "ClaveSegura2026!",
+				"password2": "ClaveSegura2026!",
+			},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertIn(
+			"Ingresa una dirección de correo electrónico válida.",
+			response.context["form"].errors["email"],
+		)
+
+	def test_registration_password_fields_use_the_same_custom_complexity_message_as_login(self):
+		registration = self.client.get(reverse("registro")).context["form"]
+		login = self.client.get(reverse("inicio")).context["form"]
+
+		for field_name in ("password1", "password2"):
+			registration_attrs = registration.fields[field_name].widget.attrs
+			self.assertNotIn("minlength", registration_attrs)
+			self.assertEqual(registration_attrs["pattern"], login.fields["password"].widget.attrs["pattern"])
+			self.assertEqual(registration_attrs["title"], login.fields["password"].widget.attrs["title"])
+
+		self.assertContains(
+			self.client.get(reverse("registro")),
+			'pattern="(?=.*\\p{Lu})(?=.*\\p{Ll})(?=.*\\p{N})(?=.*[^\\p{L}\\p{N}\\s]).{8,}"',
+		)
 
 	def test_registration_saves_user_and_allows_login(self):
 		response = self.client.post(

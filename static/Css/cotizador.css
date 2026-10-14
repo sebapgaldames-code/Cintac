@@ -182,7 +182,7 @@ tbody tr:hover { background: #fffaf5; }
 .transport-card:hover { transform: translateY(-2px); border-color: var(--accent); }
 .transport-card input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .transport-card:has(input:checked) { border: 2px solid var(--accent); background: #fff8f1; box-shadow: 0 6px 20px rgba(244,119,0,.13); }
-.transport-icon { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 50%; background: #fce6d2; color: var(--accent-hover); font-size: 27px; }
+.transport-icon { width: 56px; height: 56px; display: block; border-radius: 50%; background: #fce6d2; object-fit: cover; }
 .transport-card strong { color: var(--ink); font-size: 13px; }
 .transport-card small { color: var(--gold); font-size: 11px; }
 .transport-card:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -274,7 +274,7 @@ tbody tr:hover { background: #fffaf5; }
 	.quote-section { padding-top: 23px; }
 	.transport-grid { gap: 8px; }
 	.transport-card { min-height: 132px; padding: 10px 5px; }
-	.transport-icon { width: 48px; height: 48px; font-size: 23px; }
+	.transport-icon { width: 48px; height: 48px; }
 	.route-fields { grid-template-columns: 1fr; gap: 12px; margin-top: 22px; }
 	.route-connector { width: 2px; height: 16px; margin: -4px 0 -4px 20px; }
 	.cargo-illustration { min-height: 140px; gap: 12px; }

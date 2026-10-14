@@ -3,6 +3,10 @@ from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 
+PASSWORD_PATTERN = r"(?=.*\p{Lu})(?=.*\p{Ll})(?=.*\p{N})(?=.*[^\p{L}\p{N}\s]).{8,}"
+PASSWORD_TITLE = "Minimo 8 caracteres, con mayuscula, minuscula, numero y caracter especial."
+EMAIL_INVALID_MESSAGE = "Ingresa una dirección de correo electrónico válida."
+
 
 def validate_username(username):
 	if not username.isalpha():
@@ -32,7 +36,15 @@ def validate_password_complexity(password):
 class RegistroForm(UserCreationForm):
 	email = forms.EmailField(
 		required=False,
-		widget=forms.EmailInput(attrs={"class": "form-input", "autocomplete": "email", "placeholder": "tu@correo.com"}),
+		error_messages={"invalid": EMAIL_INVALID_MESSAGE},
+		widget=forms.EmailInput(
+			attrs={
+				"class": "form-input",
+				"autocomplete": "email",
+				"placeholder": "tu@correo.com",
+				"data-invalid-message": EMAIL_INVALID_MESSAGE,
+			}
+		),
 	)
 
 	class Meta(UserCreationForm.Meta):
@@ -56,7 +68,8 @@ class RegistroForm(UserCreationForm):
 				"class": "form-input",
 				"autocomplete": "new-password",
 				"placeholder": "Crea una contrasena segura",
-				"minlength": 8,
+				"pattern": PASSWORD_PATTERN,
+				"title": PASSWORD_TITLE,
 			}
 		)
 		self.fields["password1"].label = "Contrasena"
@@ -65,7 +78,8 @@ class RegistroForm(UserCreationForm):
 				"class": "form-input",
 				"autocomplete": "new-password",
 				"placeholder": "Repite tu contrasena",
-				"minlength": 8,
+				"pattern": PASSWORD_PATTERN,
+				"title": PASSWORD_TITLE,
 			}
 		)
 		self.fields["password2"].label = "Confirmar contrasena"
@@ -96,8 +110,8 @@ class LoginForm(AuthenticationForm):
 				"autocomplete": "current-password",
 				"placeholder": "Tu contrasena",
 				"minlength": 8,
-				"pattern": r"(?=.*\p{Lu})(?=.*\p{Ll})(?=.*\p{N})(?=.*[^\p{L}\p{N}\s]).{8,}",
-				"title": "Minimo 8 caracteres, con mayuscula, minuscula, numero y caracter especial.",
+				"pattern": PASSWORD_PATTERN,
+				"title": PASSWORD_TITLE,
 			}
 		)
 
