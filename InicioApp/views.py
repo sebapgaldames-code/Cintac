@@ -2,8 +2,9 @@ import hashlib
 
 from django.core.cache import cache
 from django.contrib.auth import login, logout
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_http_methods, require_POST
 from Admin.models import UserAccess
 from Admin.permissions import is_admin_user
 from .forms import LoginForm, RegistroForm
@@ -19,7 +20,7 @@ def _login_cache_keys(username):
 
 def inicio(request):
     if request.user.is_authenticated:
-        return redirect("access:admin_dashboard" if is_admin_user(request.user) else "cotizador")
+        return redirect("operacion")
 
     username = request.POST.get("username", "") if request.method == "POST" else ""
     attempts_key, blocked_key = _login_cache_keys(username)
@@ -33,7 +34,7 @@ def inicio(request):
             cache.delete(blocked_key)
             user = form.get_user()
             login(request, user)
-            return redirect("access:admin_dashboard" if is_admin_user(user) else "cotizador")
+            return redirect("operacion")
 
         if form.non_field_errors():
             attempts = cache.get(attempts_key, 0) + 1
@@ -45,6 +46,30 @@ def inicio(request):
                 cache.set(attempts_key, attempts, timeout=LOGIN_LOCKOUT_SECONDS)
 
     return render(request, "inicioApp/inicioApp.html", {"form": form})
+
+
+@login_required(login_url="inicio")
+@require_http_methods(["GET", "POST"])
+def operacion(request):
+    if request.method == "POST":
+        direction = request.POST.get("direction")
+        if direction not in {"importacion", "exportacion"}:
+            return render(
+                request,
+                "inicioApp/operacion.html",
+                {"error": "Selecciona importar o exportar materiales."},
+                status=400,
+            )
+        request.session["quote_direction"] = direction
+        request.session.pop("quote_data", None)
+        request.session["quote_step"] = 1
+        return redirect("cotizador")
+
+    return render(
+        request,
+        "inicioApp/operacion.html",
+        {"is_admin": is_admin_user(request.user)},
+    )
 
 
 def registro(request):

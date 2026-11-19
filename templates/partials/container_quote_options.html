@@ -1,0 +1,30 @@
+{% if container_estimates %}
+	<p class="container-quote-basis">Tarifas calculadas según {{ container_estimate_basis }}.</p>
+	<div class="container-quotes" aria-label="Cotizaciones comparativas por tamaño de contenedor">
+		{% for item in container_estimates %}
+			<article class="container-quote">
+				<h3>Opción contenedor {{ item.size }} pies</h3>
+				<dl>
+					<div class="container-quote-row">
+						<dt>Contenedores considerados</dt>
+						<dd>{{ item.container_count }}</dd>
+					</div>
+					<div class="container-quote-row">
+						<dt>Capacidad estimada por contenedor</dt>
+						<dd>{{ item.capacity_tonnes }} t</dd>
+					</div>
+					{% if item.is_available %}
+						<div class="container-quote-row">
+							<dt>Recargo por peso</dt>
+							<dd>{{ item.weight_surcharge }} {{ currency }}</dd>
+						</div>
+					{% endif %}
+					<div class="container-quote-row">
+						<dt>Flete estimado total</dt>
+						<dd>{% if item.is_available %}{% if item.minimum != item.maximum %}{{ item.minimum }} – {{ item.maximum }}{% else %}{{ item.minimum }}{% endif %} {{ currency }}{% else %}No disponible: excede la capacidad del tipo de contenedor{% endif %}</dd>
+					</div>
+				</dl>
+			</article>
+		{% endfor %}
+	</div>
+{% endif %}

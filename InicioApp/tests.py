@@ -12,6 +12,7 @@ class LoginTests(TestCase):
 		response = self.client.get(reverse("inicio"))
 
 		self.assertContains(response, "images/LogoCintac.jpg")
+		self.assertContains(response, 'type="checkbox" role="switch"')
 
 	def test_requires_username_and_password(self):
 		response = self.client.post(reverse("inicio"), {})
@@ -91,7 +92,7 @@ class LoginTests(TestCase):
 			{"username": "Operador", "password": "ClaveSegura2026!"},
 		)
 
-		self.assertRedirects(response, reverse("cotizador"))
+		self.assertRedirects(response, reverse("operacion"))
 		self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
 
 	def test_logs_in_with_valid_credentials(self):
@@ -105,9 +106,9 @@ class LoginTests(TestCase):
 			{"username": "Operador", "password": "ClaveSegura2026!"},
 		)
 
-		self.assertRedirects(response, reverse("cotizador"))
+		self.assertRedirects(response, reverse("operacion"))
 		self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
-		self.assertRedirects(self.client.get(reverse("inicio")), reverse("cotizador"))
+		self.assertRedirects(self.client.get(reverse("inicio")), reverse("operacion"))
 
 
 class RegistrationTests(TestCase):
@@ -174,7 +175,7 @@ class RegistrationTests(TestCase):
 			reverse("inicio"),
 			{"username": "NuevaCuenta", "password": "ClaveSegura2026!"},
 		)
-		self.assertRedirects(login_response, reverse("cotizador"))
+		self.assertRedirects(login_response, reverse("operacion"))
 		self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
 
 	def test_empty_registration_shows_required_fields(self):
