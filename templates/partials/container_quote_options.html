@@ -23,6 +23,10 @@
 						<dt>Flete estimado total</dt>
 						<dd>{% if item.is_available %}{% if item.minimum != item.maximum %}{{ item.minimum }} – {{ item.maximum }}{% else %}{{ item.minimum }}{% endif %} {{ currency }}{% else %}No disponible: excede la capacidad del tipo de contenedor{% endif %}</dd>
 					</div>
+					<div class="container-quote-row">
+						<dt>Total cotización (flete + carga)</dt>
+						<dd>{% if item.is_available %}{% if item.total_minimum != item.total_maximum %}{{ item.total_minimum }} – {{ item.total_maximum }}{% else %}{{ item.total_minimum }}{% endif %} {{ currency }}{% else %}No disponible: excede la capacidad del tipo de contenedor{% endif %}</dd>
+					</div>
 				</dl>
 			</article>
 		{% endfor %}

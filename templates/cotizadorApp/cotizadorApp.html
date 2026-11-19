@@ -48,10 +48,10 @@
 		{% if estimate %}
 			<aside class="estimate-banner" aria-live="polite">
 				<span class="estimate-icon" aria-hidden="true">$</span>
-				<div class="estimate-copy" data-transport="{{ quote.transport }}" data-currency="{{ currency }}" data-exchange-rate="{{ usd_to_clp_rate_value }}" {% if quote.container_count %}data-container-count="{{ quote.container_count }}"{% endif %} {% if container_tariff_20 %}data-price-20-min="{{ container_tariff_20.minimum }}" data-price-20-max="{{ container_tariff_20.maximum }}" data-price-40-min="{{ container_tariff_40.minimum }}" data-price-40-max="{{ container_tariff_40.maximum }}" data-container-capacity-20="{{ container_capacity_20_kg }}" data-container-capacity-40="{{ container_capacity_40_kg }}" data-extra-per-tonne-20="{{ container_extra_per_tonne_20 }}" data-extra-per-tonne-40="{{ container_extra_per_tonne_40 }}"{% endif %}>
+				<div class="estimate-copy" data-transport="{{ quote.transport }}" data-currency="{{ currency }}" data-exchange-rate="{{ usd_to_clp_rate_value }}" {% if container_tariff_20 %}data-price-20-min="{{ container_tariff_20.minimum }}" data-price-20-max="{{ container_tariff_20.maximum }}" data-price-40-min="{{ container_tariff_40.minimum }}" data-price-40-max="{{ container_tariff_40.maximum }}" data-container-capacity-20="{{ container_capacity_20_kg }}" data-container-capacity-40="{{ container_capacity_40_kg }}" data-extra-per-tonne-20="{{ container_extra_per_tonne_20 }}" data-extra-per-tonne-40="{{ container_extra_per_tonne_40 }}"{% endif %}>
 					<small>Estimación referencial</small>
 					{% if quote.transport == 'maritimo' and container_estimates %}
-						<small id="container-estimate-basis">Calculada según {{ container_estimate_basis }}</small>
+						<small id="container-estimate-basis">Calculada según el peso transportado</small>
 						<div class="container-comparison" aria-label="Comparación de precios por tamaño de contenedor">
 							{% for item in container_estimates %}
 								<div class="container-price">
@@ -59,6 +59,8 @@
 									<strong><span id="estimate-{{ item.size }}">{% if item.is_available %}{% if currency == 'CLP' %}${{ item.minimum }}{% else %}US${{ item.minimum }}{% endif %}{% if item.maximum != item.minimum %} - {% if currency == 'CLP' %}${{ item.maximum }}{% else %}US${{ item.maximum }}{% endif %}{% endif %} {{ currency }}{% else %}No disponible{% endif %}</span></strong>
 									<small class="container-note"><span id="banner-count-{{ item.size }}">{{ item.container_count }}</span><span id="banner-label-{{ item.size }}" data-capacity-tonnes="{{ item.capacity_tonnes }}"> contenedor{% if item.container_count != 1 %}es{% endif %} · capacidad {{ item.capacity_tonnes }} t</span></small>
 									<small class="container-note" id="banner-capacity-{{ item.size }}">{% if not item.is_available %}Excede la capacidad máxima{% endif %}</small>
+									<small>Total cotización (flete + carga)</small>
+									<strong><span id="total-estimate-{{ item.size }}">{% if item.is_available %}{% if currency == 'CLP' %}${{ item.total_minimum }}{% else %}US${{ item.total_minimum }}{% endif %}{% if item.total_maximum != item.total_minimum %} - {% if currency == 'CLP' %}${{ item.total_maximum }}{% else %}US${{ item.total_maximum }}{% endif %}{% endif %}{% else %}No disponible{% endif %}</span> {{ currency }}</strong>
 								</div>
 							{% endfor %}
 						</div>
@@ -70,6 +72,10 @@
 							<span id="estimated-price">{% if currency == 'CLP' %}${{ estimate.minimum }}{% else %}US${{ estimate.minimum }}{% endif %} {{ currency }}</span>
 						{% endif %}
 					</strong>
+					{% endif %}
+					{% if total_estimate %}
+						<small>Total cotización (flete + carga)</small>
+						<strong><span id="total-estimate-minimum">{% if currency == 'CLP' %}${{ total_estimate.minimum }}{% else %}US${{ total_estimate.minimum }}{% endif %}</span> - <span id="total-estimate-maximum">{% if currency == 'CLP' %}${{ total_estimate.maximum }}{% else %}US${{ total_estimate.maximum }}{% endif %}</span> {{ currency }}</strong>
 					{% endif %}
 					{% if currency == 'CLP' %}<small class="exchange-note">Dólar observado al {{ usd_to_clp_rate_date }}: 1 USD = ${{ usd_to_clp_rate }} CLP · mindicador.cl</small>{% endif %}
 					{% if usd_to_clp_rate_stale %}<small class="exchange-note">No fue posible actualizar la tasa; se muestra la última lectura disponible.</small>{% endif %}
@@ -96,7 +102,10 @@
 					<p>Estimación preparada con los datos ingresados:</p>
 					<dl class="quote-summary">
 						{% for field in summary_fields %}<div class="summary-row"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>{% endfor %}
-						{% if not container_estimates and estimate %}<div class="summary-row"><dt>Flete estimado</dt><dd>{% if estimate_is_range %}{{ estimate.minimum }} – {{ estimate.maximum }}{% else %}{{ estimate.minimum }}{% endif %} {{ currency }}</dd></div>{% endif %}
+						{% if not container_estimates and estimate %}
+							<div class="summary-row"><dt>Flete estimado</dt><dd>{% if estimate_is_range %}{{ estimate.minimum }} – {{ estimate.maximum }}{% else %}{{ estimate.minimum }}{% endif %} {{ currency }}</dd></div>
+							<div class="summary-row"><dt>Total cotización (flete + carga)</dt><dd>{% if estimate_is_range %}{{ total_estimate.minimum }} – {{ total_estimate.maximum }}{% else %}{{ total_estimate.minimum }}{% endif %} {{ currency }}</dd></div>
+						{% endif %}
 					</dl>
 					{% include "partials/container_quote_options.html" %}
 				</div>
@@ -161,7 +170,14 @@
 						</div>
 						<div class="weight-controls"><input id="weight-range" type="range" min="{% if weight_unit == 'ton' %}0.001{% else %}1{% endif %}" max="{% if weight_unit == 'ton' %}{{ max_weight_ton }}{% else %}{{ max_weight_kg }}{% endif %}" step="{% if weight_unit == 'ton' %}0.001{% else %}1{% endif %}" value="{{ weight_display }}"><input id="weight-number" name="weight" type="number" min="{% if weight_unit == 'ton' %}0.001{% else %}1{% endif %}" max="{% if weight_unit == 'ton' %}{{ max_weight_ton }}{% else %}{{ max_weight_kg }}{% endif %}" step="{% if weight_unit == 'ton' %}0.001{% else %}1{% endif %}" value="{{ weight_display }}" required></div>
 					</div>
+					{% comment %}
 					{% if quote.transport == 'maritimo' %}<label class="route-field container-field" for="container-count"><span>Cantidad de contenedores <small>(Opcional)</small></span><input id="container-count" name="container_count" type="number" min="1" step="1" value="{{ container_count_display }}"><small>Si no la conoces, déjala vacía; estimaremos según el peso transportado.</small></label>{% endif %}
+					{% endcomment %}
+					<label class="route-field cargo-value-field" for="cargo-value">
+						<span>Valor de la carga <small>(Opcional, {{ currency }})</small></span>
+						<input id="cargo-value" name="cargo_value" type="number" min="0" max="999999999999.99" step="0.01" value="{{ cargo_value_display }}">
+						<small>Total cotización = valor del flete + valor de la carga.</small>
+					</label>
 					<label class="description-field" for="description">Descripción <span>Opcional</span><textarea id="description" name="description" maxlength="500" placeholder="Describe tu mercancía...">{{ quote.description }}</textarea></label>
 					<div class="quote-actions"><button class="quote-secondary" type="submit" name="action" value="back" formnovalidate>← Volver</button><button class="quote-primary" type="submit">Continuar <span aria-hidden="true">→</span></button></div>
 				</form>
@@ -178,7 +194,10 @@
 						<p class="eyebrow">INFORME DE COTIZACIÓN · {% now "d/m/Y H:i" %}</p>
 						<dl class="quote-summary">
 							{% for field in summary_fields %}<div class="summary-row"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>{% endfor %}
-							{% if not container_estimates and estimate %}<div class="summary-row"><dt>Flete estimado</dt><dd>{% if estimate_is_range %}{{ estimate.minimum }} – {{ estimate.maximum }}{% else %}{{ estimate.minimum }}{% endif %} {{ currency }}</dd></div>{% endif %}
+							{% if not container_estimates and estimate %}
+								<div class="summary-row"><dt>Flete estimado</dt><dd>{% if estimate_is_range %}{{ estimate.minimum }} – {{ estimate.maximum }}{% else %}{{ estimate.minimum }}{% endif %} {{ currency }}</dd></div>
+								<div class="summary-row"><dt>Total cotización (flete + carga)</dt><dd>{% if estimate_is_range %}{{ total_estimate.minimum }} – {{ total_estimate.maximum }}{% else %}{{ total_estimate.minimum }}{% endif %} {{ currency }}</dd></div>
+							{% endif %}
 						</dl>
 						{% include "partials/container_quote_options.html" %}
 					</div>
@@ -220,7 +239,11 @@
 		const estimatedPrice = document.querySelector("#estimated-price");
 		const estimate20 = document.querySelector("#estimate-20");
 		const estimate40 = document.querySelector("#estimate-40");
-		const containerCountInput = document.querySelector("#container-count");
+		const totalEstimateMinimum = document.querySelector("#total-estimate-minimum");
+		const totalEstimateMaximum = document.querySelector("#total-estimate-maximum");
+		const totalEstimate20 = document.querySelector("#total-estimate-20");
+		const totalEstimate40 = document.querySelector("#total-estimate-40");
+		const cargoValueInput = document.querySelector("#cargo-value");
 		if (estimateCopy && weightNumber && weightUnitInputs.length) {
 			const updateEstimate = () => {
 				const unit = document.querySelector('input[name="weight_unit"]:checked').value;
@@ -237,29 +260,24 @@
 						const tariffMinimum = Number(estimateCopy.getAttribute(`data-price-${size}-min`));
 						const tariffMaximum = Number(estimateCopy.getAttribute(`data-price-${size}-max`));
 						const extraPerTonne = Number(estimateCopy.getAttribute(`data-extra-per-tonne-${size}`));
-						const countValue = containerCountInput
-							? Number(containerCountInput.value)
-							: Number(estimateCopy.dataset.containerCount);
+						/*
+						const containerCountInput = document.querySelector("#container-count");
+						const countValue = containerCountInput ? Number(containerCountInput.value) : 0;
 						const declaredCount = Number.isSafeInteger(countValue) && countValue > 0 ? countValue : 0;
 						const containers = declaredCount || Math.ceil(weight / capacity);
+						*/
+						const containers = Math.ceil(weight / capacity);
 						const isAvailable = weight <= containers * capacity;
 						const weightSurcharge = (weight / 1000) * extraPerTonne;
 						return {
 							containers,
 							isAvailable,
-							declaredCount,
 							minimum: containers * tariffMinimum + weightSurcharge,
 							maximum: containers * tariffMaximum + weightSurcharge,
 						};
 					};
 					estimate20Value = estimateContainer("20");
 					estimate40Value = estimateContainer("40");
-					const basis = document.querySelector("#container-estimate-basis");
-					if (basis) {
-						basis.textContent = estimate20Value.declaredCount
-							? "Calculada según cantidad informada y peso transportado"
-							: "Calculada según peso transportado";
-					}
 					const availableEstimate = estimate20Value.isAvailable ? estimate20Value : estimate40Value;
 					minimum = availableEstimate.minimum;
 					maximum = availableEstimate.maximum;
@@ -272,22 +290,34 @@
 				}
 				const currency = estimateCopy.dataset.currency;
 				const conversion = currency === "CLP" ? Number(estimateCopy.dataset.exchangeRate) : 1;
-				const formatAmount = (amount) => {
-					const roundedUsd = Math.round(amount * 100) / 100;
-					const converted = roundedUsd * conversion;
-					const rounded = currency === "CLP"
-						? Math.floor(converted + 0.5)
-						: Math.round(converted * 100) / 100;
+				const cargoValue = Number(cargoValueInput?.value || "0");
+				const cargoValueCurrent = Number.isFinite(cargoValue) && cargoValue >= 0 ? cargoValue : 0;
+				const roundCurrentAmount = (amount) => currency === "CLP"
+					? Math.floor(amount + 0.5)
+					: Math.round(amount * 100) / 100;
+				const formatCurrentAmount = (amount) => {
+					const rounded = roundCurrentAmount(amount);
 					return `${currency === "CLP" ? "$" : "US$"}${new Intl.NumberFormat("es-CL", {
 						minimumFractionDigits: Number.isInteger(rounded) ? 0 : 2,
 						maximumFractionDigits: currency === "CLP" ? 0 : 2,
 					}).format(rounded)}`;
 				};
+				const formatAmount = (amountUsd) => formatCurrentAmount(amountUsd * conversion);
+				const formatTotalAmount = (freightUsd) => formatCurrentAmount(
+					roundCurrentAmount(freightUsd * conversion) + cargoValueCurrent,
+				);
 				if (estimateMinimum && estimateMaximum) {
 					estimateMinimum.textContent = formatAmount(minimum);
 					estimateMaximum.textContent = formatAmount(maximum);
+					if (totalEstimateMinimum && totalEstimateMaximum) {
+						totalEstimateMinimum.textContent = formatTotalAmount(minimum);
+						totalEstimateMaximum.textContent = formatTotalAmount(maximum);
+					}
 				} else if (estimatedPrice) {
 					estimatedPrice.textContent = `${formatAmount(minimum)} ${currency}`;
+					if (totalEstimateMinimum) {
+						totalEstimateMinimum.textContent = formatTotalAmount(minimum);
+					}
 				}
 				if (estimate20 && estimate40 && estimate20Value && estimate40Value) {
 					const formatContainerPrice = (estimate) => {
@@ -301,6 +331,18 @@
 					};
 					estimate20.textContent = formatContainerPrice(estimate20Value);
 					estimate40.textContent = formatContainerPrice(estimate40Value);
+					for (const [estimate, totalElement] of [
+						[estimate20Value, totalEstimate20],
+						[estimate40Value, totalEstimate40],
+					]) {
+						if (totalElement) {
+							const minimumTotal = formatTotalAmount(estimate.minimum);
+							const maximumTotal = formatTotalAmount(estimate.maximum);
+							totalElement.textContent = minimumTotal === maximumTotal
+								? minimumTotal
+								: `${minimumTotal} - ${maximumTotal}`;
+						}
+					}
 					for (const [size, estimate] of [["20", estimate20Value], ["40", estimate40Value]]) {
 						const count = document.querySelector(`#banner-count-${size}`);
 						const label = document.querySelector(`#banner-label-${size}`);
@@ -317,7 +359,7 @@
 			};
 			weightRange?.addEventListener("input", updateEstimate);
 			weightNumber.addEventListener("input", updateEstimate);
-			containerCountInput?.addEventListener("input", updateEstimate);
+			cargoValueInput?.addEventListener("input", updateEstimate);
 			weightUnitInputs.forEach((input) => input.addEventListener("change", updateEstimate));
 			updateEstimate();
 		}
