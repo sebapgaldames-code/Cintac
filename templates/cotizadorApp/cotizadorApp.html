@@ -37,15 +37,15 @@
 		<div class="quote-toolbar">
 			{% include "partials/theme_toggle.html" %}
 		</div>
-		<nav class="stepper" aria-label="Progreso de cotización">
+		{% if not air_unavailable %}<nav class="stepper" aria-label="Progreso de cotización">
 			<div class="stepper-track"><span style="width: {{ progress }}%"></span></div>
 			<div class="step-node {% if step >= 1 %}is-active{% endif %}"><span>{% if step > 1 %}✓{% else %}1{% endif %}</span><small>Transporte</small></div>
 			<div class="step-node {% if step >= 2 %}is-active{% endif %}"><span>{% if step > 2 %}✓{% else %}2{% endif %}</span><small>Ruta</small></div>
 			<div class="step-node {% if step >= 3 %}is-active{% endif %}"><span>{% if step > 3 %}✓{% else %}3{% endif %}</span><small>Carga</small></div>
 			<div class="step-node {% if step >= 4 %}is-active{% endif %}"><span>4</span><small>Resumen</small></div>
-		</nav>
+		</nav>{% endif %}
 
-		{% if estimate %}
+		{% if estimate and not air_unavailable %}
 			<aside class="estimate-banner" aria-live="polite">
 				<span class="estimate-icon" aria-hidden="true">$</span>
 				<div class="estimate-copy" data-transport="{{ quote.transport }}" data-currency="{{ currency }}" data-exchange-rate="{{ usd_to_clp_rate_value }}" {% if container_tariff_20 %}data-price-20-min="{{ container_tariff_20.minimum }}" data-price-20-max="{{ container_tariff_20.maximum }}" data-price-40-min="{{ container_tariff_40.minimum }}" data-price-40-max="{{ container_tariff_40.maximum }}" data-container-capacity-20="{{ container_capacity_20_kg }}" data-container-capacity-40="{{ container_capacity_40_kg }}" data-extra-per-tonne-20="{{ container_extra_per_tonne_20 }}" data-extra-per-tonne-40="{{ container_extra_per_tonne_40 }}"{% endif %}>
@@ -93,7 +93,17 @@
 			<div class="quote-errors" role="alert">{% for error in errors %}<p>{{ error }}</p>{% endfor %}</div>
 		{% endif %}
 
-		{% if quote.completed %}
+		{% if air_unavailable %}
+			<section class="quote-section" aria-labelledby="step-title">
+				<p class="step-kicker">COTIZACIÓN AÉREA</p>
+				<h2 id="step-title">La cotización aérea no está disponible por el momento</h2>
+				<p class="section-description">Por favor, vuelve a elegir el tipo de transporte para continuar.</p>
+				<form method="post" action="{% url 'cotizador' %}">
+					{% csrf_token %}
+					<button class="quote-secondary" type="submit" name="action" value="back">← Volver a elegir transporte</button>
+				</form>
+			</section>
+		{% elif quote.completed %}
 			<section class="quote-complete" aria-labelledby="complete-title">
 				<div class="printable-report">
 					<img class="report-logo" src="{% static 'images/LogoCintac.jpg' %}" alt="Cintac">

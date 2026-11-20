@@ -11,7 +11,9 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.cache import cache
+from django.http import Http404
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from openpyxl import load_workbook
@@ -22,6 +24,7 @@ TRANSPORTS = (
 	{"id": "maritimo", "label": "Marítimo", "image": "images/CotizacionMaritima.jpg", "starting_price": "Por ruta y contenedor"},
 	{"id": "aereo", "label": "Aéreo", "image": "images/CotizacionAerea.jpg", "starting_price": "Desde US$150"},
 )
+TARIFF_SHEETS = {"importacion": "Importacion", "exportacion": "Exportacion"}
 CARGO_TYPES = (("general", "General", "📦"),)
 WEIGHT_UNITS = {"kg", "ton"}
 CURRENCIES = {"USD", "CLP"}
@@ -48,7 +51,7 @@ def _available_routes(direction="importacion"):
 	if not path.exists():
 		return []
 	workbook = load_workbook(path, read_only=True, data_only=True)
-	sheet_name = "Exportacion" if direction == "exportacion" else "Importacion"
+	sheet_name = TARIFF_SHEETS.get(direction, TARIFF_SHEETS["importacion"])
 	if sheet_name not in workbook.sheetnames:
 		workbook.close()
 		return []
@@ -214,23 +217,25 @@ def _parse_cell_value(value, column):
 	return text
 
 
-def _save_workbook(path, post_data):
+def _save_workbook(path, post_data, sheet_name):
 	workbook = load_workbook(path)
-	sheet = workbook.active
-	for row_number in range(2, sheet.max_row + 1):
-		values = []
-		for column in range(1, sheet.max_column + 1):
-			field_name = f"cell_{row_number}_{column}"
-			value = _parse_cell_value(post_data.get(field_name, ""), column)
-			sheet.cell(row=row_number, column=column).value = value
-			values.append(value)
-
-		for minimum_column, maximum_column in ((5, 6), (7, 8), (9, 10)):
-			if values[minimum_column - 1] > values[maximum_column - 1]:
-				raise ValueError(f"En la fila {row_number}, el valor mínimo no puede superar el máximo.")
-
 	temporary_path = None
 	try:
+		if sheet_name not in workbook.sheetnames:
+			raise ValueError("No se encontró la hoja de tarifas seleccionada.")
+		sheet = workbook[sheet_name]
+		for row_number in range(2, sheet.max_row + 1):
+			values = []
+			for column in range(1, sheet.max_column + 1):
+				field_name = f"cell_{row_number}_{column}"
+				value = _parse_cell_value(post_data.get(field_name, ""), column)
+				sheet.cell(row=row_number, column=column).value = value
+				values.append(value)
+
+			for minimum_column, maximum_column in ((5, 6), (7, 8), (9, 10)):
+				if values[minimum_column - 1] > values[maximum_column - 1]:
+					raise ValueError(f"En la fila {row_number}, el valor mínimo no puede superar el máximo.")
+
 		with tempfile.NamedTemporaryFile(
 			dir=path.parent,
 			suffix=path.suffix,
@@ -242,6 +247,7 @@ def _save_workbook(path, post_data):
 	finally:
 		if temporary_path is not None:
 			temporary_path.unlink(missing_ok=True)
+		workbook.close()
 
 
 @login_required(login_url="inicio")
@@ -284,7 +290,15 @@ def cotizador(request):
 				request.session.pop("quote_currency_error", None)
 			return redirect("cotizador")
 		if action == "back":
-			request.session["quote_step"] = max(1, step - 1)
+			if step == 5:
+				quote = dict(quote)
+				quote.pop("transport", None)
+				request.session["quote_data"] = quote
+				request.session["quote_step"] = 1
+			else:
+				request.session["quote_step"] = max(1, step - 1)
+			return redirect("cotizador")
+		if step == 5:
 			return redirect("cotizador")
 
 		quote = dict(quote)
@@ -293,8 +307,11 @@ def cotizador(request):
 			if transport not in {item["id"] for item in TRANSPORTS}:
 				errors.append("Selecciona un tipo de transporte.")
 			else:
-				quote["transport"] = transport
-				quote["weight"] = quote.get("weight", "100")
+				if transport == "aereo":
+					quote = {"transport": transport, "weight": quote.get("weight", "100")}
+				else:
+					quote["transport"] = transport
+					quote["weight"] = quote.get("weight", "100")
 		elif step == 2:
 			origin = request.POST.get("origin", "")
 			destination = request.POST.get("destination", "")
@@ -412,7 +429,10 @@ def cotizador(request):
 
 		if not errors:
 			request.session["quote_data"] = quote
-			request.session["quote_step"] = min(4, step + 1)
+			request.session["quote_step"] = (
+				5 if step == 1 and quote.get("transport") == "aereo"
+				else min(4, step + 1)
+			)
 			return redirect("cotizador")
 
 	step = request.session.get("quote_step", 1)
@@ -585,6 +605,7 @@ def cotizador(request):
 		cargo_value_display = request.POST.get("cargo_value", "")
 	context = {
 		"step": step,
+		"air_unavailable": step == 5 and quote.get("transport") == "aereo",
 		"progress": round((step - 1) * 100 / 3),
 		"quote": quote,
 		"summary_fields": summary_fields,
@@ -634,6 +655,14 @@ def tarifas(request):
 	if request.method == "POST" and not can_edit:
 		raise PermissionDenied
 
+	direction = (
+		request.POST.get("direction", "importacion")
+		if request.method == "POST"
+		else request.GET.get("direction", "importacion")
+	)
+	if direction not in TARIFF_SHEETS:
+		raise Http404
+	sheet_name = TARIFF_SHEETS[direction]
 	path = _workbook_path()
 	error = None
 	if not path.exists():
@@ -646,6 +675,11 @@ def tarifas(request):
 			workbook = None
 			error = "No se pudo abrir el archivo de tarifas."
 
+	if workbook is not None and sheet_name not in workbook.sheetnames:
+		workbook.close()
+		workbook = None
+		error = "No se encontró la hoja de tarifas seleccionada."
+
 	if request.method == "POST" and workbook is not None:
 		lock_path = path.with_name(f"~${path.name}")
 		if lock_path.exists():
@@ -653,16 +687,18 @@ def tarifas(request):
 		else:
 			try:
 				workbook.close()
-				_save_workbook(path, request.POST)
+				_save_workbook(path, request.POST, sheet_name)
 			except (OSError, PermissionError, ValueError) as exc:
 				error = str(exc) or "No se pudieron guardar los cambios."
 			else:
-				return redirect("tarifas")
+				if direction == "importacion":
+					return redirect("tarifas")
+				return redirect(f"{reverse('tarifas')}?direction={direction}")
 
 	headers = []
 	rows = []
 	if workbook is not None:
-		sheet = workbook.active
+		sheet = workbook[sheet_name]
 		headers = [cell.value or "" for cell in sheet[1]]
 		for row_number in range(2, sheet.max_row + 1):
 			values = [sheet.cell(row=row_number, column=column).value for column in range(1, sheet.max_column + 1)]
@@ -674,5 +710,12 @@ def tarifas(request):
 	return render(
 		request,
 		"cotizadorApp/tarifasFijas.html",
-		{"headers": headers, "rows": rows, "error": error, "can_edit": can_edit},
+		{
+			"headers": headers,
+			"rows": rows,
+			"error": error,
+			"can_edit": can_edit,
+			"direction": direction,
+			"direction_label": "Importación" if direction == "importacion" else "Exportación",
+		},
 	)

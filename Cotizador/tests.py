@@ -56,9 +56,9 @@ class TariffEditorTests(TestCase):
 		self.admin = user_model.objects.create_user(username="AdminPrueba", password="ClaveSegura2026!")
 		UserAccess.objects.create(user=self.admin, is_admin=True)
 
-	def _row_post_data(self, **changes):
+	def _row_post_data(self, sheet_name="Importacion", **changes):
 		workbook = load_workbook(self.workbook_path, data_only=True)
-		values = list(workbook.active.iter_rows(min_row=2, max_row=2, values_only=True))[0]
+		values = list(workbook[sheet_name].iter_rows(min_row=2, max_row=2, values_only=True))[0]
 		workbook.close()
 		data = {f"cell_2_{column}": str(value) for column, value in enumerate(values, 1)}
 		data.update(changes)
@@ -109,6 +109,37 @@ class TariffEditorTests(TestCase):
 		)
 		response = self.client.get(reverse("cotizador"))
 		self.assertNotContains(response, 'name="container_count"')
+
+	def test_air_transport_shows_unavailable_notice_for_import_and_export(self):
+		self.client.force_login(self.common)
+
+		for direction in ("importacion", "exportacion"):
+			with self.subTest(direction=direction):
+				session = self.client.session
+				session["quote_direction"] = direction
+				session["quote_data"] = {
+					"transport": "maritimo",
+					"origin": "Shanghai",
+					"destination": "San Antonio",
+					"weight": 100,
+				}
+				session["quote_step"] = 1
+				session.save()
+
+				response = self.client.post(reverse("cotizador"), {"transport": "aereo"})
+
+				self.assertRedirects(response, reverse("cotizador"))
+				self.assertEqual(self.client.session["quote_step"], 5)
+				response = self.client.get(reverse("cotizador"))
+				self.assertContains(response, "La cotización aérea no está disponible por el momento")
+				self.assertContains(response, "Volver a elegir transporte")
+				self.assertNotContains(response, "Elige tu ruta")
+				self.assertNotContains(response, "Estimación referencial")
+
+				response = self.client.post(reverse("cotizador"), {"action": "back"})
+				self.assertRedirects(response, reverse("cotizador"))
+				self.assertEqual(self.client.session["quote_step"], 1)
+				self.assertNotIn("transport", self.client.session["quote_data"])
 
 	def test_maritime_quote_compares_both_container_sizes(self):
 		self.client.force_login(self.common)
@@ -170,20 +201,19 @@ class TariffEditorTests(TestCase):
 		response = self.client.post(reverse("tarifas"), {"cell_2_5": "1100"})
 		self.assertEqual(response.status_code, 403)
 
-	def test_quote_estimate_uses_selected_transport_route_and_weight(self):
+	def test_air_selection_cannot_continue_to_route_or_estimate(self):
 		self.client.force_login(self.common)
 		self.client.post(reverse("cotizador"), {"transport": "aereo"})
-		self.client.post(
+		response = self.client.post(
 			reverse("cotizador"),
 			{"origin": "Shanghai", "destination": "San Antonio"},
 		)
 
+		self.assertRedirects(response, reverse("cotizador"))
 		response = self.client.get(reverse("cotizador"))
-
-		self.assertEqual(response.context["step"], 3)
-		self.assertEqual(response.context["estimate"], {"minimum": 298, "maximum": 402})
-		self.assertEqual(self.client.session["quote_data"]["delay_days"], 0)
-		self.assertContains(response, 'name="cargo_value"')
+		self.assertEqual(response.context["step"], 5)
+		self.assertContains(response, "La cotización aérea no está disponible por el momento")
+		self.assertNotContains(response, 'name="delay_days"')
 
 	def test_optional_cargo_value_is_added_to_air_freight_range(self):
 		self.client.force_login(self.common)
@@ -288,7 +318,7 @@ class TariffEditorTests(TestCase):
 
 	def test_route_step_accepts_nonnegative_estimated_delay_days(self):
 		self.client.force_login(self.common)
-		self.client.post(reverse("cotizador"), {"transport": "aereo"})
+		self.client.post(reverse("cotizador"), {"transport": "maritimo"})
 		response = self.client.get(reverse("cotizador"))
 		self.assertContains(response, 'name="delay_days"')
 		self.assertContains(response, "Días estimados de posibles retrasos")
@@ -792,3 +822,31 @@ class TariffEditorTests(TestCase):
 		self.assertContains(response, "Puerto Origen")
 		self.assertContains(response, "Shanghai")
 		self.assertNotContains(self.client.get(reverse("cotizador")), "Puerto Origen")
+
+	def test_tariff_editor_can_switch_and_save_export_sheet(self):
+		self.client.force_login(self.editor)
+
+		response = self.client.get(reverse("tarifas"), {"direction": "exportacion"})
+
+		self.assertContains(response, "Callao")
+		self.assertNotContains(response, "Shanghai")
+		self.assertEqual(response.context["direction"], "exportacion")
+		self.assertContains(response, 'href="/cotizador/tarifas/?direction=importacion"')
+		self.assertContains(response, 'href="/cotizador/tarifas/?direction=exportacion"')
+
+		response = self.client.post(
+			reverse("tarifas"),
+			self._row_post_data(
+				"Exportacion",
+				cell_2_5="910",
+				cell_2_6="920",
+				direction="exportacion",
+			),
+		)
+
+		self.assertRedirects(response, f"{reverse('tarifas')}?direction=exportacion")
+		workbook = load_workbook(self.workbook_path, data_only=True)
+		self.assertEqual(workbook["Exportacion"]["E2"].value, 910)
+		self.assertEqual(workbook["Exportacion"]["F2"].value, 920)
+		self.assertEqual(workbook["Importacion"]["E2"].value, 1000)
+		workbook.close()
